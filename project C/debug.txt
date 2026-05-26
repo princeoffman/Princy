@@ -1,0 +1,50 @@
+== Info: Host localhost:8000 was resolved.
+== Info: IPv6: ::1
+== Info: IPv4: 127.0.0.1
+== Info:   Trying [::1]:8000...
+== Info: Connected to localhost (::1) port 8000
+== Info: using HTTP/1.x
+=> Send header, 146 bytes (0x92)
+0000: POST /send_message.php HTTP/1.1
+0021: Host: localhost:8000
+0037: User-Agent: curl/8.14.1
+0050: Accept: */*
+005d: Content-Type: application/json
+007d: Content-Length: 2
+0090: 
+=> Send data, 2 bytes (0x2)
+0000: {\
+== Info: upload completely sent off: 2 bytes
+<= Recv header, 17 bytes (0x11)
+0000: HTTP/1.1 200 OK
+<= Recv header, 22 bytes (0x16)
+0000: Host: localhost:8000
+<= Recv header, 37 bytes (0x25)
+0000: Date: Mon, 20 Oct 2025 11:20:46 GMT
+<= Recv header, 19 bytes (0x13)
+0000: Connection: close
+<= Recv header, 26 bytes (0x1a)
+0000: X-Powered-By: PHP/8.2.12
+<= Recv header, 32 bytes (0x20)
+0000: Access-Control-Allow-Origin: *
+<= Recv header, 63 bytes (0x3f)
+0000: Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+<= Recv header, 107 bytes (0x6b)
+0000: Access-Control-Allow-Headers: Content-Type, Access-Control-Allow
+0040: -Headers, Authorization, X-Requested-With
+<= Recv header, 32 bytes (0x20)
+0000: Content-Type: application/json
+<= Recv header, 2 bytes (0x2)
+0000: 
+<= Recv data, 42 bytes (0x2a)
+0000: {"success":false,"message":"Invalid JSON"}
+<= Recv data, 0 bytes (0x0)
+== Info: shutting down connection #0
+== Info: URL rejected: Port number was not a decimal number between 0 and 65535
+== Info: closing connection #-1
+== Info: Could not resolve host: message
+== Info: shutting down connection #1
+== Info: Could not resolve host: from
+== Info: shutting down connection #2
+== Info: URL rejected: Bad hostname
+== Info: closing connection #-1

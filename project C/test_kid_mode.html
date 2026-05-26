@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kid Mode Testing</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 3px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        input { padding: 8px; margin: 5px; }
+        .status { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Kid Mode Testing Suite</h1>
+
+    <div class="test-section">
+        <h2>Test 1: Kid Mode Activation/Deactivation</h2>
+        <button onclick="testKidModeToggle()">Toggle Kid Mode</button>
+        <button onclick="checkKidModeStatus()">Check Status</button>
+        <div id="kidModeStatus" class="status">Status: Unknown</div>
+        <div id="test1Result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Time Limit Settings</h2>
+        <input type="number" id="timeLimitInput" placeholder="Time limit (minutes)" min="1" max="480">
+        <input type="password" id="passwordInput" placeholder="Password">
+        <button onclick="setTimeLimit()">Set Time Limit</button>
+        <div id="test2Result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Time Monitoring</h2>
+        <button onclick="startTimeMonitoring()">Start Monitoring</button>
+        <button onclick="simulateTimeLimit()">Simulate Time Limit Reached</button>
+        <button onclick="checkTimeRemaining()">Check Time Remaining</button>
+        <div id="timeStatus">Time monitoring: Not started</div>
+        <div id="test3Result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Password Unlock</h2>
+        <input type="password" id="unlockPasswordInput" placeholder="Enter unlock password">
+        <button onclick="testPasswordUnlock()">Test Unlock</button>
+        <div id="test4Result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 5: Lock Screen Display</h2>
+        <button onclick="forceLockScreen()">Force Lock Screen</button>
+        <button onclick="checkLockScreen()">Check Lock Screen Status</button>
+        <div id="lockScreenStatus">Lock screen: Not active</div>
+        <div id="test5Result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results Summary</h2>
+        <div id="testSummary"></div>
+    </div>
+
+    <script>
+        // Test variables
+        let testResults = {
+            test1: false,
+            test2: false,
+            test3: false,
+            test4: false,
+            test5: false
+        };
+
+        function updateTestResult(testId, result, message) {
+            const element = document.getElementById(testId + 'Result');
+            element.innerHTML = `<div class="test-result ${result ? 'success' : 'error'}">${message}</div>`;
+            testResults[testId] = result;
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const summary = document.getElementById('testSummary');
+            const passed = Object.values(testResults).filter(Boolean).length;
+            const total = Object.keys(testResults).length;
+            summary.innerHTML = `<div class="test-result ${passed === total ? 'success' : 'warning'}">Tests passed: ${passed}/${total}</div>`;
+        }
+
+        function testKidModeToggle() {
+            try {
+                // Simulate toggling Kid Mode
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                settings.kidModeEnabled = !settings.kidModeEnabled;
+                localStorage.setItem('userSettings', JSON.stringify(settings));
+
+                // Update UI if available
+                if (window.updateKidModeState) {
+                    window.updateKidModeState();
+                }
+
+                checkKidModeStatus();
+                updateTestResult('test1', true, 'Kid Mode toggle successful');
+            } catch (error) {
+                updateTestResult('test1', false, 'Error toggling Kid Mode: ' + error.message);
+            }
+        }
+
+        function checkKidModeStatus() {
+            const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+            const status = settings.kidModeEnabled ? 'Enabled' : 'Disabled';
+            document.getElementById('kidModeStatus').textContent = 'Status: ' + status;
+        }
+
+        function setTimeLimit() {
+            try {
+                const timeLimit = parseInt(document.getElementById('timeLimitInput').value);
+                const password = document.getElementById('passwordInput').value;
+
+                if (!timeLimit || timeLimit < 1 || timeLimit > 480) {
+                    updateTestResult('test2', false, 'Invalid time limit (must be 1-480 minutes)');
+                    return;
+                }
+
+                if (!password || password.length < 4) {
+                    updateTestResult('test2', false, 'Password must be at least 4 characters');
+                    return;
+                }
+
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                settings.kidModeTimeLimit = timeLimit;
+                settings.kidModePassword = password;
+                localStorage.setItem('userSettings', JSON.stringify(settings));
+
+                updateTestResult('test2', true, `Time limit set to ${timeLimit} minutes with password protection`);
+            } catch (error) {
+                updateTestResult('test2', false, 'Error setting time limit: ' + error.message);
+            }
+        }
+
+        function startTimeMonitoring() {
+            try {
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                if (!settings.kidModeEnabled) {
+                    updateTestResult('test3', false, 'Kid Mode must be enabled to start monitoring');
+                    return;
+                }
+
+                // Set start time
+                localStorage.setItem('kidModeStartTime', Date.now().toString());
+
+                // Start monitoring (simulate)
+                if (window.startKidModeMonitoring) {
+                    window.startKidModeMonitoring(settings.kidModeTimeLimit);
+                }
+
+                document.getElementById('timeStatus').textContent = 'Time monitoring: Started';
+                updateTestResult('test3', true, 'Time monitoring started successfully');
+            } catch (error) {
+                updateTestResult('test3', false, 'Error starting time monitoring: ' + error.message);
+            }
+        }
+
+        function simulateTimeLimit() {
+            try {
+                // Simulate time limit reached by setting start time far in the past
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                const timeLimitMs = settings.kidModeTimeLimit * 60 * 1000;
+                const pastTime = Date.now() - timeLimitMs - 1000; // 1 second past limit
+                localStorage.setItem('kidModeStartTime', pastTime.toString());
+
+                // Trigger lock
+                if (window.lockKidMode) {
+                    window.lockKidMode();
+                }
+
+                updateTestResult('test3', true, 'Time limit simulation successful - lock should be triggered');
+            } catch (error) {
+                updateTestResult('test3', false, 'Error simulating time limit: ' + error.message);
+            }
+        }
+
+        function checkTimeRemaining() {
+            try {
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                const startTime = parseInt(localStorage.getItem('kidModeStartTime') || Date.now());
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const remaining = Math.max(0, settings.kidModeTimeLimit * 60 - elapsed);
+
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+
+                document.getElementById('timeStatus').textContent =
+                    `Time remaining: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+                updateTestResult('test3', true, `Time check successful - ${minutes}:${seconds.toString().padStart(2, '0')} remaining`);
+            } catch (error) {
+                updateTestResult('test3', false, 'Error checking time remaining: ' + error.message);
+            }
+        }
+
+        function testPasswordUnlock() {
+            try {
+                const password = document.getElementById('unlockPasswordInput').value;
+                const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+                const correctPassword = settings.kidModePassword;
+
+                if (!correctPassword) {
+                    updateTestResult('test4', false, 'No password set for Kid Mode');
+                    return;
+                }
+
+                if (password === correctPassword) {
+                    // Simulate unlock
+                    if (window.unlockKidMode) {
+                        window.unlockKidMode();
+                    }
+                    updateTestResult('test4', true, 'Password unlock successful');
+                } else {
+                    updateTestResult('test4', false, 'Incorrect password');
+                }
+            } catch (error) {
+                updateTestResult('test4', false, 'Error testing password unlock: ' + error.message);
+            }
+        }
+
+        function forceLockScreen() {
+            try {
+                if (window.showKidModeLockScreen) {
+                    window.showKidModeLockScreen();
+                    document.getElementById('lockScreenStatus').textContent = 'Lock screen: Active';
+                    updateTestResult('test5', true, 'Lock screen forced successfully');
+                } else {
+                    updateTestResult('test5', false, 'showKidModeLockScreen function not available');
+                }
+            } catch (error) {
+                updateTestResult('test5', false, 'Error forcing lock screen: ' + error.message);
+            }
+        }
+
+        function checkLockScreen() {
+            const lockScreen = document.getElementById('kidModeLockScreen');
+            const isActive = lockScreen && lockScreen.style.display !== 'none';
+            document.getElementById('lockScreenStatus').textContent =
+                'Lock screen: ' + (isActive ? 'Active' : 'Not active');
+
+            updateTestResult('test5', true, 'Lock screen status check successful');
+        }
+
+        // Initialize
+        window.addEventListener('load', function() {
+            checkKidModeStatus();
+            updateSummary();
+        });
+    </script>
+
+    <!-- Include the main script for testing -->
+    <script src="script.js"></script>
+    <script src="test_kid_mode.js"></script>
+</body>
+</html>
