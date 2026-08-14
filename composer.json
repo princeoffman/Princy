@@ -1,0 +1,21 @@
+{
+    "name": "princeoffman/princy",
+    "description": "ProjectConnect - share and explore creative projects",
+    "type": "project",
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload-dev": {
+        "files": [
+            "project C/lib/validation.php",
+            "project C/lib/presenters.php"
+        ]
+    },
+    "scripts": {
+        "test": "phpunit",
+        "coverage": "phpunit --coverage-text"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -1,5 +1,6 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
@@ -24,32 +25,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data = $_POST;
     }
 
-    if (!isset($data['sender_id']) || !isset($data['receiver_id']) || !isset($data['message'])) {
-        error_log("Missing fields. Data: " . print_r($data, true)); // Debug log
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
+    $input = validate_message_input($data);
+
+    if (!$input['ok']) {
+        error_log("Invalid message payload: " . print_r($data, true)); // Debug log
+        echo json_encode(['success' => false, 'message' => $input['message']]);
         exit;
     }
 
-    $sender_id = intval($data['sender_id']);
-    $receiver_id = intval($data['receiver_id']);
-    $message = trim($data['message']);
-
-    if (empty($message)) {
-        echo json_encode(['success' => false, 'message' => 'Message cannot be empty']);
-        exit;
-    }
-
-    // Validate sender and receiver IDs
-    if ($sender_id <= 0 || $receiver_id <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid sender or receiver ID']);
-        exit;
-    }
-
-    // Check if sender and receiver are different users
-    if ($sender_id === $receiver_id) {
-        echo json_encode(['success' => false, 'message' => 'Cannot send message to yourself']);
-        exit;
-    }
+    $sender_id = $input['sender_id'];
+    $receiver_id = $input['receiver_id'];
+    $message = $input['text'];
 
     // Verify sender exists
     $check_sender = $conn->prepare("SELECT id FROM users WHERE id = ?");

@@ -1,5 +1,6 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/presenters.php';
 
 header('Content-Type: application/json');
 
@@ -28,13 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     $users = [];
     while ($row = $result->fetch_assoc()) {
-        $users[] = [
-            'id' => $row['id'],
-            'username' => $row['username'],
-            'name' => $row['full_name'],
-            'avatar' => $row['avatar'],
-            'status' => $row['online_status'] ? 'online' : 'offline'
-        ];
+        $users[] = format_user_row($row);
     }
 
     echo json_encode([

@@ -1,26 +1,24 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents('php://input'), true);
 
-    if (!isset($data['user_id']) || !isset($data['contact_name'])) {
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
+    $input = validate_contact_input($data);
+
+    if (!$input['ok']) {
+        echo json_encode(['success' => false, 'message' => $input['message']]);
         exit;
     }
 
-    $user_id = $data['user_id'];
-    $contact_name = trim($data['contact_name']);
-    $contact_email = isset($data['contact_email']) ? trim($data['contact_email']) : null;
-    $contact_phone = isset($data['contact_phone']) ? trim($data['contact_phone']) : null;
-    $contact_notes = isset($data['contact_notes']) ? trim($data['contact_notes']) : null;
-
-    if (empty($contact_name)) {
-        echo json_encode(['success' => false, 'message' => 'Contact name cannot be empty']);
-        exit;
-    }
+    $user_id = $input['user_id'];
+    $contact_name = $input['contact']['contact_name'];
+    $contact_email = $input['contact']['contact_email'];
+    $contact_phone = $input['contact']['contact_phone'];
+    $contact_notes = $input['contact']['contact_notes'];
 
     // Verify user exists
     $check_user_sql = "SELECT id FROM users WHERE id = ?";

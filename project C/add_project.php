@@ -1,25 +1,23 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents('php://input'), true);
 
-    if (!isset($data['user_id']) || !isset($data['title']) || !isset($data['description'])) {
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
+    $input = validate_project_input($data);
+
+    if (!$input['ok']) {
+        echo json_encode(['success' => false, 'message' => $input['message']]);
         exit;
     }
 
-    $user_id = $data['user_id'];
-    $title = trim($data['title']);
-    $description = trim($data['description']);
-    $image = isset($data['image']) ? trim($data['image']) : 'https://images.unsplash.com/photo-1555949963-aa79dcee981c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
-
-    if (empty($title) || empty($description)) {
-        echo json_encode(['success' => false, 'message' => 'Title and description cannot be empty']);
-        exit;
-    }
+    $user_id = $input['user_id'];
+    $title = $input['project']['title'];
+    $description = $input['project']['description'];
+    $image = $input['project']['image'];
 
     // Verify user exists
     $check_user_sql = "SELECT id FROM users WHERE id = ?";

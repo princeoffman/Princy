@@ -1,15 +1,18 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
 // Check if user_id is provided
-$user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
+$param = validate_id_param($_GET['user_id'] ?? null);
 
-if ($user_id <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid user ID']);
+if (!$param['ok']) {
+    echo json_encode(['success' => false, 'message' => $param['message']]);
     exit;
 }
+
+$user_id = $param['id'];
 
 // Get saved projects with project and author information
 $sql = "SELECT p.*, u.full_name as author_name, u.avatar as author_avatar, sp.created_at as saved_at

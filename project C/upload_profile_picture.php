@@ -1,5 +1,6 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
@@ -19,32 +20,15 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Check if file was uploaded
-    if (!isset($_FILES['profile_picture']) || $_FILES['profile_picture']['error'] !== UPLOAD_ERR_OK) {
-        echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
+    $file = $_FILES['profile_picture'] ?? null;
+    $upload = validate_avatar_upload($file);
+
+    if (!$upload['ok']) {
+        echo json_encode(['success' => false, 'message' => $upload['message']]);
         exit;
     }
 
-    $file = $_FILES['profile_picture'];
-
-    // Validate file type
-    $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($file['type'], $allowed_types)) {
-        echo json_encode(['success' => false, 'message' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.']);
-        exit;
-    }
-
-    // Validate file size (max 5MB)
-    $max_size = 5 * 1024 * 1024; // 5MB in bytes
-    if ($file['size'] > $max_size) {
-        echo json_encode(['success' => false, 'message' => 'File too large. Maximum size is 5MB.']);
-        exit;
-    }
-
-    // Generate unique filename
-    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $new_filename = 'user_' . $user_id . '_' . time() . '.' . $file_extension;
-    $upload_path = 'uploads/' . $new_filename;
+    $upload_path = 'uploads/' . avatar_filename($user_id, $file['name'], time());
 
     // Move uploaded file
     if (move_uploaded_file($file['tmp_name'], $upload_path)) {
