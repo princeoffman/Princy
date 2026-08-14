@@ -1,23 +1,26 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents('php://input'), true);
+    $body = decode_json_body(file_get_contents('php://input'));
 
-    if ($data === null) {
-        echo json_encode(['success' => false, 'message' => 'Invalid JSON']);
+    if (!$body['ok']) {
+        echo json_encode(['success' => false, 'message' => $body['message']]);
         exit;
     }
 
-    $username = $data['username'] ?? null;
-    $password = $data['password'] ?? null;
+    $input = validate_login_input($body['data']);
 
-    if (!$username || !$password) {
-        echo json_encode(['success' => false, 'message' => 'Missing username or password']);
+    if (!$input['ok']) {
+        echo json_encode(['success' => false, 'message' => $input['message']]);
         exit;
     }
+
+    $username = $input['username'];
+    $password = $input['password'];
     
     $sql = "SELECT * FROM users WHERE username = ?";
     $stmt = $conn->prepare($sql);

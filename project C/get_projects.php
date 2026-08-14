@@ -1,5 +1,6 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/presenters.php';
 
 // Set content type to JSON
 header('Content-Type: application/json');
@@ -8,28 +9,8 @@ header('Content-Type: application/json');
 $sort = isset($_GET['sort']) ? $_GET['sort'] : 'default';
 $search = isset($_GET['search']) ? $_GET['search'] : '';
 
-// Base query
-$sql = "SELECT p.*, u.full_name as author_name, u.avatar as author_avatar
-        FROM projects p
-        JOIN users u ON p.user_id = u.id";
-
-// Add search condition if provided
-$whereClause = "";
-if (!empty($search)) {
-    $searchTerm = $conn->real_escape_string($search);
-    $whereClause = " WHERE (p.title LIKE '%$searchTerm%' OR p.description LIKE '%$searchTerm%' OR u.full_name LIKE '%$searchTerm%')";
-}
-
-// Add sorting
-$orderBy = " ORDER BY p.created_at DESC";
-if ($sort === 'trending') {
-    // For trending, we'll use random score for demo (since views not implemented)
-    $orderBy = " ORDER BY RAND(), p.created_at DESC";
-} elseif ($sort === 'new') {
-    $orderBy = " ORDER BY p.created_at DESC";
-}
-
-$sql .= $whereClause . $orderBy;
+$searchTerm = empty($search) ? '' : $conn->real_escape_string($search);
+$sql = build_projects_query($sort, $searchTerm);
 
 $result = $conn->query($sql);
 

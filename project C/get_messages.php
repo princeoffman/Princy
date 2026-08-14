@@ -1,5 +1,6 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/presenters.php';
 
 header('Content-Type: application/json');
 
@@ -28,16 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     $messages = [];
     while ($row = $result->fetch_assoc()) {
-        $messages[] = [
-            'id' => $row['id'],
-            'sender_id' => $row['sender_id'],
-            'receiver_id' => $row['receiver_id'],
-            'message' => $row['message'],
-            'sent_at' => $row['sent_at'],
-            'sender_name' => $row['sender_name'],
-            'sender_avatar' => $row['sender_avatar'],
-            'type' => ($row['sender_id'] == $sender_id) ? 'sent' : 'received'
-        ];
+        $messages[] = format_message_row($row, $sender_id);
     }
 
     echo json_encode([

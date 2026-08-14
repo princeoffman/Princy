@@ -1,15 +1,18 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/lib/validation.php';
 
 header('Content-Type: application/json');
 
 // Check if user_id is provided
-$user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
+$param = validate_id_param($_GET['user_id'] ?? null);
 
-if ($user_id <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid user ID']);
+if (!$param['ok']) {
+    echo json_encode(['success' => false, 'message' => $param['message']]);
     exit;
 }
+
+$user_id = $param['id'];
 
 // Get contacts for the user
 $sql = "SELECT id, contact_name, contact_email, contact_phone, contact_notes, created_at
