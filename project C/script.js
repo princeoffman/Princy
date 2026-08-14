@@ -133,19 +133,11 @@ function setupAuthentication() {
         const password = document.getElementById('loginPassword').value;
         
         try {
-            const response = await fetch('login.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username, password })
-            });
-            
-            const result = await response.json();
+            const result = await apiPost('login.php', { username, password });
             
             if (result.success) {
                 currentUser = result.user;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                storeCurrentUser(currentUser);
                 updateUIAfterLogin();
                 document.getElementById('authModal').style.display = 'none';
                 loginForm.reset();
@@ -169,20 +161,12 @@ function setupAuthentication() {
         const password = document.getElementById('regPassword').value;
         
         try {
-            const response = await fetch('register.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                    full_name: fullName,
-                    username: username,
-                    email: email,
-                    password: password
-                })
+            const result = await apiPost('register.php', {
+                full_name: fullName,
+                username: username,
+                email: email,
+                password: password
             });
-            
-            const result = await response.json();
             
             if (result.success) {
                 alert('Registration successful! Please login with your credentials.');
@@ -200,9 +184,9 @@ function setupAuthentication() {
 }
 
 function checkExistingLogin() {
-    const savedUser = localStorage.getItem('currentUser');
+    const savedUser = getStoredUser();
     if (savedUser) {
-        currentUser = JSON.parse(savedUser);
+        currentUser = savedUser;
         updateUIAfterLogin();
     } else {
         // Hide user profile if not logged in
@@ -601,7 +585,7 @@ function loadSettings() {
     console.log('Loading settings...');
 
     // Load saved settings or use defaults
-    const savedSettings = JSON.parse(localStorage.getItem('userSettings')) || {};
+    const savedSettings = getUserSettings();
 
     // Account Settings
     if (currentUser) {
@@ -752,7 +736,7 @@ function saveAccountSettings() {
         currentUser.email = email;
         currentUser.full_name = fullName;
         currentUser.bio = bio;
-        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        storeCurrentUser(currentUser);
         updateUIAfterLogin();
     }
 
@@ -766,10 +750,7 @@ function savePrivacySettings() {
         allowDirectMessages: document.getElementById('allowDirectMessages').checked
     };
 
-    localStorage.setItem('userSettings', JSON.stringify({
-        ...JSON.parse(localStorage.getItem('userSettings') || '{}'),
-        ...settings
-    }));
+    updateUserSettings(settings);
 
     alert('Privacy settings saved successfully!');
 }
@@ -782,10 +763,7 @@ function saveNotificationSettings() {
         projectUpdates: document.getElementById('projectUpdates').checked
     };
 
-    localStorage.setItem('userSettings', JSON.stringify({
-        ...JSON.parse(localStorage.getItem('userSettings') || '{}'),
-        ...settings
-    }));
+    updateUserSettings(settings);
 
     alert('Notification settings saved successfully!');
 }
@@ -796,9 +774,7 @@ function applyThemeSettings() {
 
     setTheme(selectedTheme);
 
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
-    settings.autoTheme = autoTheme;
-    localStorage.setItem('userSettings', JSON.stringify(settings));
+    updateUserSettings({ autoTheme: autoTheme });
 
     alert('Theme settings applied successfully!');
 }
@@ -828,12 +804,11 @@ function saveKidModeSettings() {
     }
 
     // Save settings
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
-    settings.kidModeEnabled = kidModeEnabled;
-    settings.kidModeTimeLimit = kidModeTimeLimit;
-    settings.kidModePassword = kidModeEnabled ? kidModePassword : '';
-
-    localStorage.setItem('userSettings', JSON.stringify(settings));
+    updateUserSettings({
+        kidModeEnabled: kidModeEnabled,
+        kidModeTimeLimit: kidModeTimeLimit,
+        kidModePassword: kidModeEnabled ? kidModePassword : ''
+    });
 
     // Reset password confirmation field
     document.getElementById('kidModePasswordConfirm').value = '';
@@ -848,7 +823,7 @@ function setupTestKidModeLock() {
     console.log('Setting up Kid Mode lock...');
 
     // Load Kid Mode settings
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = getUserSettings();
 
     // Check if Kid Mode is already locked (persists across page refreshes)
     const isLocked = localStorage.getItem('kidModeLocked') === 'true';
@@ -956,7 +931,7 @@ function showKidModeLockScreen() {
 
     const attemptUnlock = () => {
         const enteredPassword = passwordInput.value;
-        const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+        const settings = getUserSettings();
         const correctPassword = settings.kidModePassword;
 
         if (enteredPassword === correctPassword) {
@@ -998,7 +973,7 @@ function unlockKidMode() {
     }
 
     // Restart monitoring
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = getUserSettings();
     if (settings.kidModeEnabled) {
         startKidModeMonitoring(settings.kidModeTimeLimit);
     }
@@ -1049,7 +1024,7 @@ async function playUnlockSound() {
 function updateKidModeState() {
     console.log('Updating Kid Mode state...');
 
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = getUserSettings();
 
     if (settings.kidModeEnabled) {
         // Clear any existing lock
@@ -1087,8 +1062,7 @@ async function loadConversations() {
 
     try {
         // Load real users from database
-        const response = await fetch('get_users.php' + (currentUser ? `?current_user_id=${currentUser.id}` : ''));
-        const result = await response.json();
+        const result = await apiGet('get_users.php' + (currentUser ? `?current_user_id=${currentUser.id}` : ''));
 
         if (result.success) {
             conversations = result.users.map(user => ({
@@ -1245,8 +1219,7 @@ async function loadChatMessages(userId) {
 
     try {
         // Load real messages from database
-        const response = await fetch(`get_messages.php?sender_id=${currentUser.id}&receiver_id=${userId}`);
-        const result = await response.json();
+        const result = await apiGet(`get_messages.php?sender_id=${currentUser.id}&receiver_id=${userId}`);
 
         if (result.success && result.messages.length > 0) {
             result.messages.forEach(message => {
@@ -1361,20 +1334,11 @@ function setupChatSendMessage() {
                 newChatInput.value = '';
 
                 // Send message to database
-                const response = await fetch('send_message.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        sender_id: currentUser.id,
-                        receiver_id: currentChatUser.id,
-                        message: message
-                    })
+                const result = await apiPost('send_message.php', {
+                    sender_id: currentUser.id,
+                    receiver_id: currentChatUser.id,
+                    message: message
                 });
-
-                console.log('Fetch response status:', response.status);
-                const result = await response.json();
                 console.log('API response:', result);
 
                 if (result.success) {
@@ -1443,20 +1407,9 @@ function startTimeTracking() {
 
 // Project loading functions
 async function loadProjects() {
-    try {
-        console.log('Loading projects...');
-        const response = await fetch('get_projects.php');
-        const result = await response.json();
-
-        if (result.success && result.projects.length > 0) {
-            displayProjects(result.projects);
-        } else {
-            displayProjects(getSampleProjects());
-        }
-    } catch (error) {
-        console.error('Error loading projects:', error);
-        displayProjects(getSampleProjects());
-    }
+    console.log('Loading projects...');
+    const projects = await fetchProjects();
+    displayProjects(projects || getSampleProjects());
 }
 
 function getSampleProjects() {
@@ -1498,37 +1451,7 @@ function displayProjects(projects) {
         return;
     }
 
-    grid.innerHTML = '';
-
-    projects.forEach(project => {
-        const card = document.createElement('div');
-        card.className = 'project-card';
-        card.innerHTML = `
-            <img src="${project.image}" alt="${project.title}" class="project-image">
-            <div class="project-info">
-                <h3 class="project-title">${project.title}</h3>
-                <p class="project-description">${project.description}</p>
-                <div class="project-meta">
-                    <div class="project-author">
-                        <img src="${project.author_avatar}" alt="${project.author_name}" class="author-avatar">
-                        <span>${project.author_name}</span>
-                    </div>
-                    <div class="project-likes">
-                        <i class="far fa-heart like-btn" data-project-id="${project.id}"></i> ${project.like_count || 0}
-                    </div>
-                </div>
-                <div class="project-actions">
-                    <button class="btn btn-outline save-project-btn" data-project-id="${project.id}"><i class="far fa-bookmark"></i> Save</button>
-                    <button class="btn btn-primary message-user"
-                            data-user="${project.author_name}"
-                            data-user-id="${project.user_id}">
-                        <i class="far fa-comment"></i> Message
-                    </button>
-                </div>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
+    renderProjectsInGrid(projects, grid);
 
     attachProjectMessageListeners();
     attachSaveProjectListeners();
@@ -1720,21 +1643,12 @@ function attachSaveProjectListeners() {
             const projectId = this.getAttribute('data-project-id');
 
             try {
-                const response = await fetch('save_project.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: currentUser.id,
-                        project_id: projectId
-                    })
+                const result = await apiPost('save_project.php', {
+                    user_id: currentUser.id,
+                    project_id: projectId
                 });
 
-                const result = await response.json();
-
                 if (result.success) {
-                    const icon = this.querySelector('i');
                     if (result.saved) {
                         this.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
                         this.classList.add('saved');
@@ -1774,18 +1688,10 @@ function attachLikeProjectListeners() {
             const likeCountElement = this.nextSibling;
 
             try {
-                const response = await fetch('like_project.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: currentUser.id,
-                        project_id: projectId
-                    })
+                const result = await apiPost('like_project.php', {
+                    user_id: currentUser.id,
+                    project_id: projectId
                 });
-
-                const result = await response.json();
 
                 if (result.success) {
                     // Update the like count
@@ -1863,17 +1769,12 @@ function setupProfilePictureUpload() {
         showUploadStatus('Uploading...', 'info');
 
         try {
-            const response = await fetch('upload_profile_picture.php', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await response.json();
+            const result = await apiPostForm('upload_profile_picture.php', formData);
 
             if (result.success) {
                 // Update current user avatar
                 currentUser.avatar = result.avatar_url;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                storeCurrentUser(currentUser);
 
                 // Update UI
                 updateUIAfterLogin();
@@ -1974,8 +1875,7 @@ async function loadSavedProjects() {
     }
 
     try {
-        const response = await fetch(`get_saved_projects.php?user_id=${currentUser.id}`);
-        const result = await response.json();
+        const result = await apiGet(`get_saved_projects.php?user_id=${currentUser.id}`);
 
         if (result.success && result.projects.length > 0) {
             grid.innerHTML = '';
@@ -2034,18 +1934,10 @@ async function unsaveProject(projectId) {
     }
 
     try {
-        const response = await fetch('save_project.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: currentUser.id,
-                project_id: projectId
-            })
+        const result = await apiPost('save_project.php', {
+            user_id: currentUser.id,
+            project_id: projectId
         });
-
-        const result = await response.json();
 
         if (result.success) {
             alert(result.message);
@@ -2133,32 +2025,20 @@ async function loadTrendingProjects() {
         return;
     }
 
-    try {
-        // Try to load from database first
-        const response = await fetch('get_projects.php?sort=trending');
-        const result = await response.json();
+    const projects = await fetchProjects('?sort=trending');
 
-        if (result.success && result.projects.length > 0) {
-            displayProjectsInGrid(result.projects, grid);
-        } else {
-            // Fallback to sample trending projects
-            const trendingProjects = getSampleProjects().map(project => ({
-                ...project,
-                trending_score: Math.floor(Math.random() * 100) + 50
-            })).sort((a, b) => b.trending_score - a.trending_score);
-
-            displayProjectsInGrid(trendingProjects, grid);
-        }
-    } catch (error) {
-        console.error('Error loading trending projects:', error);
-        // Fallback to sample projects
-        const trendingProjects = getSampleProjects().map(project => ({
-            ...project,
-            trending_score: Math.floor(Math.random() * 100) + 50
-        })).sort((a, b) => b.trending_score - a.trending_score);
-
-        displayProjectsInGrid(trendingProjects, grid);
+    if (projects) {
+        displayProjectsInGrid(projects, grid);
+        return;
     }
+
+    // Fallback to sample trending projects
+    const trendingProjects = getSampleProjects().map(project => ({
+        ...project,
+        trending_score: Math.floor(Math.random() * 100) + 50
+    })).sort((a, b) => b.trending_score - a.trending_score);
+
+    displayProjectsInGrid(trendingProjects, grid);
 }
 
 async function loadNewProjects() {
@@ -2170,24 +2050,10 @@ async function loadNewProjects() {
         return;
     }
 
-    try {
-        // Try to load from database first
-        const response = await fetch('get_projects.php?sort=new');
-        const result = await response.json();
+    const projects = await fetchProjects('?sort=new');
 
-        if (result.success && result.projects.length > 0) {
-            displayProjectsInGrid(result.projects, grid);
-        } else {
-            // Fallback to sample new projects (reverse order to simulate newest first)
-            const newProjects = [...getSampleProjects()].reverse();
-            displayProjectsInGrid(newProjects, grid);
-        }
-    } catch (error) {
-        console.error('Error loading new projects:', error);
-        // Fallback to sample projects
-        const newProjects = [...getSampleProjects()].reverse();
-        displayProjectsInGrid(newProjects, grid);
-    }
+    // Fallback to sample new projects (reverse order to simulate newest first)
+    displayProjectsInGrid(projects || [...getSampleProjects()].reverse(), grid);
 }
 
 async function searchProjects(query) {
@@ -2199,45 +2065,31 @@ async function searchProjects(query) {
         return;
     }
 
-    try {
-        // Try to search from database first
-        const response = await fetch(`get_projects.php?search=${encodeURIComponent(query)}`);
-        const result = await response.json();
+    const projects = await fetchProjects(`?search=${encodeURIComponent(query)}`);
 
-        if (result.success && result.projects.length > 0) {
-            displayProjectsInGrid(result.projects, grid);
-        } else {
-            // Fallback to client-side search
-            const allProjects = getSampleProjects();
-            const filteredProjects = allProjects.filter(project =>
-                project.title.toLowerCase().includes(query.toLowerCase()) ||
-                project.description.toLowerCase().includes(query.toLowerCase()) ||
-                project.author_name.toLowerCase().includes(query.toLowerCase())
-            );
+    if (projects) {
+        displayProjectsInGrid(projects, grid);
+        return;
+    }
 
-            if (filteredProjects.length > 0) {
-                displayProjectsInGrid(filteredProjects, grid);
-            } else {
-                grid.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-search" style="font-size: 64px; color: var(--gray); margin-bottom: 20px;"></i>
-                        <h2 style="color: var(--text-color); margin-bottom: 10px;">No Projects Found</h2>
-                        <p style="color: var(--gray); margin-bottom: 20px;">Try different keywords or browse categories</p>
-                    </div>
-                `;
-            }
-        }
-    } catch (error) {
-        console.error('Error searching projects:', error);
-        // Fallback to client-side search
-        const allProjects = getSampleProjects();
-        const filteredProjects = allProjects.filter(project =>
-            project.title.toLowerCase().includes(query.toLowerCase()) ||
-            project.description.toLowerCase().includes(query.toLowerCase()) ||
-            project.author_name.toLowerCase().includes(query.toLowerCase())
-        );
+    // Fallback to client-side search
+    const needle = query.toLowerCase();
+    const filteredProjects = getSampleProjects().filter(project =>
+        project.title.toLowerCase().includes(needle) ||
+        project.description.toLowerCase().includes(needle) ||
+        project.author_name.toLowerCase().includes(needle)
+    );
 
+    if (filteredProjects.length > 0) {
         displayProjectsInGrid(filteredProjects, grid);
+    } else {
+        grid.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-search" style="font-size: 64px; color: var(--gray); margin-bottom: 20px;"></i>
+                <h2 style="color: var(--text-color); margin-bottom: 10px;">No Projects Found</h2>
+                <p style="color: var(--gray); margin-bottom: 20px;">Try different keywords or browse categories</p>
+            </div>
+        `;
     }
 }
 
@@ -2288,37 +2140,7 @@ function filterProjectsByCategory(category) {
 }
 
 function displayProjectsInGrid(projects, grid) {
-    grid.innerHTML = '';
-
-    projects.forEach(project => {
-        const card = document.createElement('div');
-        card.className = 'project-card';
-        card.innerHTML = `
-            <img src="${project.image}" alt="${project.title}" class="project-image">
-            <div class="project-info">
-                <h3 class="project-title">${project.title}</h3>
-                <p class="project-description">${project.description}</p>
-                <div class="project-meta">
-                    <div class="project-author">
-                        <img src="${project.author_avatar}" alt="${project.author_name}" class="author-avatar">
-                        <span>${project.author_name}</span>
-                    </div>
-                    <div class="project-likes">
-                        <i class="far fa-heart"></i> ${Math.floor(Math.random() * 200) + 50}
-                    </div>
-                </div>
-                <div class="project-actions">
-                    <button class="btn btn-outline save-project-btn" data-project-id="${project.id}"><i class="far fa-bookmark"></i> Save</button>
-                    <button class="btn btn-primary message-user"
-                            data-user="${project.author_name}"
-                            data-user-id="${project.user_id}">
-                        <i class="far fa-comment"></i> Message
-                    </button>
-                </div>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
+    renderProjectsInGrid(projects, grid, { interactiveLikes: false });
 
     // Re-attach listeners
     attachProjectMessageListeners();
@@ -2489,20 +2311,12 @@ function setupAddProjectForm() {
         }
 
         try {
-            const response = await fetch('add_project.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: currentUser.id,
-                    title: title,
-                    description: description,
-                    image: image
-                })
+            const result = await apiPost('add_project.php', {
+                user_id: currentUser.id,
+                title: title,
+                description: description,
+                image: image
             });
-
-            const result = await response.json();
 
             if (result.success) {
                 alert('Project added successfully!');
@@ -2542,21 +2356,13 @@ function setupAddContactForm() {
         }
 
         try {
-            const response = await fetch('add_contact.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: currentUser.id,
-                    contact_name: contactName,
-                    contact_email: contactEmail || null,
-                    contact_phone: contactPhone || null,
-                    contact_notes: contactNotes || null
-                })
+            const result = await apiPost('add_contact.php', {
+                user_id: currentUser.id,
+                contact_name: contactName,
+                contact_email: contactEmail || null,
+                contact_phone: contactPhone || null,
+                contact_notes: contactNotes || null
             });
-
-            const result = await response.json();
 
             if (result.success) {
                 alert('Contact added successfully!');
@@ -2587,8 +2393,7 @@ async function loadContacts() {
     }
 
     try {
-        const response = await fetch(`get_contacts.php?user_id=${currentUser.id}`);
-        const result = await response.json();
+        const result = await apiGet(`get_contacts.php?user_id=${currentUser.id}`);
 
         if (result.success) {
             contactsContainer.innerHTML = '';
