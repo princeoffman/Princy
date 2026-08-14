@@ -1,12 +1,16 @@
 <?php
 include 'config.php';
 
-// Set content type to JSON
-header('Content-Type: application/json');
+require_request_method('GET');
 
 // Get sort parameter
 $sort = isset($_GET['sort']) ? $_GET['sort'] : 'default';
-$search = isset($_GET['search']) ? $_GET['search'] : '';
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+
+$allowed_sorts = ['default', 'trending', 'new'];
+if (!in_array($sort, $allowed_sorts, true)) {
+    json_fail('Invalid sort option. Allowed: ' . implode(', ', $allowed_sorts), 400);
+}
 
 // Base query
 $sql = "SELECT p.*, u.full_name as author_name, u.avatar as author_avatar
@@ -14,40 +18,36 @@ $sql = "SELECT p.*, u.full_name as author_name, u.avatar as author_avatar
         JOIN users u ON p.user_id = u.id";
 
 // Add search condition if provided
-$whereClause = "";
-if (!empty($search)) {
-    $searchTerm = $conn->real_escape_string($search);
-    $whereClause = " WHERE (p.title LIKE '%$searchTerm%' OR p.description LIKE '%$searchTerm%' OR u.full_name LIKE '%$searchTerm%')";
+$params = [];
+$types = '';
+if ($search !== '') {
+    $sql .= " WHERE (p.title LIKE ? OR p.description LIKE ? OR u.full_name LIKE ?)";
+    $like = '%' . $search . '%';
+    $params = [$like, $like, $like];
+    $types = 'sss';
 }
 
-// Add sorting
-$orderBy = " ORDER BY p.created_at DESC";
-if ($sort === 'trending') {
-    // For trending, we'll use random score for demo (since views not implemented)
-    $orderBy = " ORDER BY RAND(), p.created_at DESC";
-} elseif ($sort === 'new') {
-    $orderBy = " ORDER BY p.created_at DESC";
+// Add sorting. For trending we use a random score for demo (views not implemented).
+$sql .= $sort === 'trending' ? " ORDER BY RAND(), p.created_at DESC" : " ORDER BY p.created_at DESC";
+
+$stmt = $conn->prepare($sql);
+if ($params) {
+    $stmt->bind_param($types, ...$params);
 }
-
-$sql .= $whereClause . $orderBy;
-
-$result = $conn->query($sql);
+$stmt->execute();
+$result = $stmt->get_result();
 
 $projects = array();
-if ($result && $result->num_rows > 0) {
-    while($row = $result->fetch_assoc()) {
-        $projects[] = $row;
-    }
+while ($row = $result->fetch_assoc()) {
+    $projects[] = $row;
 }
 
-// Return success response
-$response = array(
-    'success' => true,
+$stmt->close();
+
+json_success([
     'projects' => $projects,
     'sort' => $sort,
     'search' => $search
-);
+]);
 
-echo json_encode($response);
 $conn->close();
-?>

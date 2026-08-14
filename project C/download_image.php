@@ -1,61 +1,79 @@
 <?php
+require_once __DIR__ . '/api_response.php';
+
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
-function downloadImage($url, $filename) {
-    $uploadsDir = 'uploads/';
+require_request_method('GET');
 
-    // Create uploads directory if it doesn't exist
-    if (!is_dir($uploadsDir)) {
-        mkdir($uploadsDir, 0755, true);
+/**
+ * Downloads a remote image into uploads/.
+ *
+ * @throws RuntimeException when the directory, download or write fails, so the
+ *         caller can report why it failed instead of only that it failed.
+ */
+function downloadImage(string $url, string $filename): string
+{
+    $uploadsDir = __DIR__ . '/uploads';
+
+    if (!is_dir($uploadsDir) && !mkdir($uploadsDir, 0755, true) && !is_dir($uploadsDir)) {
+        throw new RuntimeException("Could not create uploads directory: $uploadsDir");
     }
 
-    // Get image content
-    $imageContent = file_get_contents($url);
-
+    $context = stream_context_create(['http' => ['timeout' => 10, 'follow_location' => 1]]);
+    $imageContent = @file_get_contents($url, false, $context);
     if ($imageContent === false) {
-        return false;
+        $error = error_get_last();
+        throw new RuntimeException("Could not download $url: " . ($error['message'] ?? 'unknown error'));
     }
 
-    // Save image to uploads folder
-    $filePath = $uploadsDir . $filename;
-    $result = file_put_contents($filePath, $imageContent);
-
-    if ($result === false) {
-        return false;
+    if ($imageContent === '') {
+        throw new RuntimeException("Downloaded an empty body from $url");
     }
 
-    return $filePath;
+    $filePath = $uploadsDir . '/' . $filename;
+    if (file_put_contents($filePath, $imageContent) === false) {
+        throw new RuntimeException("Could not write $filePath");
+    }
+
+    return 'uploads/' . $filename;
 }
 
-// Example usage for the two users
-if (isset($_GET['download'])) {
-    $kudaUrl = "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.shutterstock.com%2Fsearch%2Fzimbabwe-man&psig=AOvVaw28CKtAX6cBGo7KivMklL1c&ust=1761287612608000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCIif4P3ZuZADFQAAAAAdAAAAABAE";
-    $tanatswaUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQpbHv3EFPD6tuWd-454ivCgvkPmjrotTwSlA&s";
+if (!isset($_GET['download'])) {
+    json_fail('Invalid request: missing download parameter', 400);
+}
 
-    $kudaFilename = 'kuda_mapinga_' . time() . '.jpg';
-    $tanatswaFilename = 'tanatswa_sibanda_' . time() . '.jpg';
+$downloads = [
+    'kuda_avatar' => [
+        'url' => "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.shutterstock.com%2Fsearch%2Fzimbabwe-man&psig=AOvVaw28CKtAX6cBGo7KivMklL1c&ust=1761287612608000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCIif4P3ZuZADFQAAAAAdAAAAABAE",
+        'filename' => 'kuda_mapinga_' . time() . '.jpg',
+    ],
+    'tanatswa_avatar' => [
+        'url' => "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQpbHv3EFPD6tuWd-454ivCgvkPmjrotTwSlA&s",
+        'filename' => 'tanatswa_sibanda_' . time() . '.jpg',
+    ],
+];
 
-    $kudaPath = downloadImage($kudaUrl, $kudaFilename);
-    $tanatswaPath = downloadImage($tanatswaUrl, $tanatswaFilename);
-
-    if ($kudaPath && $tanatswaPath) {
-        echo json_encode([
-            'success' => true,
-            'message' => 'Images downloaded successfully',
-            'kuda_avatar' => $kudaPath,
-            'tanatswa_avatar' => $tanatswaPath
-        ]);
-    } else {
-        echo json_encode([
-            'success' => false,
-            'message' => 'Failed to download images'
-        ]);
+$paths = [];
+$errors = [];
+foreach ($downloads as $key => $download) {
+    try {
+        $paths[$key] = downloadImage($download['url'], $download['filename']);
+    } catch (RuntimeException $e) {
+        // Report which download failed and why, rather than a single generic message.
+        $errors[$key] = $e->getMessage();
+        error_log("download_image.php: $key failed: " . $e->getMessage());
     }
-} else {
-    echo json_encode([
+}
+
+if ($errors) {
+    json_response([
         'success' => false,
-        'message' => 'Invalid request'
-    ]);
+        'message' => 'Failed to download images: ' . implode('; ', array_keys($errors)),
+        'errors' => $errors,
+        'downloaded' => $paths
+    ], 502);
+    exit;
 }
-?>
+
+json_success(['message' => 'Images downloaded successfully'] + $paths);
