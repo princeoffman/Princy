@@ -155,7 +155,7 @@ function setupAuthentication() {
             }
         } catch (error) {
             console.error('Login error:', error);
-            alert('Login failed. Please try again.');
+            alert('Could not reach the server. Check your connection and try again.');
         }
     });
     
@@ -194,7 +194,7 @@ function setupAuthentication() {
             }
         } catch (error) {
             console.error('Registration error:', error);
-            alert('Registration failed. Please try again.');
+            alert('Could not reach the server. Check your connection and try again.');
         }
     });
 }

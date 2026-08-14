@@ -46,6 +46,41 @@ function validate_login_input($data)
 }
 
 /**
+ * @return array{ok: bool, username?: string, email?: string, password?: string, full_name?: string, message?: string}
+ */
+function validate_register_input($data)
+{
+    if (!is_array($data)) {
+        return ['ok' => false, 'message' => 'Invalid JSON'];
+    }
+
+    $username = trim($data['username'] ?? '');
+    $email = trim($data['email'] ?? '');
+    $password = $data['password'] ?? '';
+    $full_name = trim($data['full_name'] ?? '');
+
+    if ($username === '' || $email === '' || $password === '' || $full_name === '') {
+        return ['ok' => false, 'message' => 'All fields are required'];
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Please enter a valid email address'];
+    }
+
+    if (strlen($password) < 6) {
+        return ['ok' => false, 'message' => 'Password must be at least 6 characters'];
+    }
+
+    return [
+        'ok' => true,
+        'username' => $username,
+        'email' => $email,
+        'password' => $password,
+        'full_name' => $full_name,
+    ];
+}
+
+/**
  * @return array{ok: bool, sender_id?: int, receiver_id?: int, message?: string}
  */
 function validate_message_input($data)
