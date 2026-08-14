@@ -1,53 +1,20 @@
 <?php
-include 'config.php';
+require_once __DIR__ . '/api_helpers.php';
 
-header('Content-Type: application/json');
+require_method('POST');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents('php://input'), true);
+$data = read_request_data();
+require_fields($data, ['user_id', 'project_id']);
 
-    if (!isset($data['user_id']) || !isset($data['project_id'])) {
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
-        exit;
-    }
+$saved = toggle_project_link($conn, 'saved_projects', $data['user_id'], $data['project_id']);
 
-    $user_id = $data['user_id'];
-    $project_id = $data['project_id'];
-
-    // Check if already saved
-    $check_sql = "SELECT id FROM saved_projects WHERE user_id = ? AND project_id = ?";
-    $check_stmt = $conn->prepare($check_sql);
-    $check_stmt->bind_param("ii", $user_id, $project_id);
-    $check_stmt->execute();
-    $check_result = $check_stmt->get_result();
-
-    if ($check_result->num_rows > 0) {
-        // Already saved, remove it (unsave)
-        $delete_sql = "DELETE FROM saved_projects WHERE user_id = ? AND project_id = ?";
-        $delete_stmt = $conn->prepare($delete_sql);
-        $delete_stmt->bind_param("ii", $user_id, $project_id);
-
-        if ($delete_stmt->execute()) {
-            echo json_encode(['success' => true, 'message' => 'Project unsaved successfully', 'saved' => false]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Failed to unsave project']);
-        }
-        $delete_stmt->close();
-    } else {
-        // Not saved, add it
-        $insert_sql = "INSERT INTO saved_projects (user_id, project_id) VALUES (?, ?)";
-        $insert_stmt = $conn->prepare($insert_sql);
-        $insert_stmt->bind_param("ii", $user_id, $project_id);
-
-        if ($insert_stmt->execute()) {
-            echo json_encode(['success' => true, 'message' => 'Project saved successfully', 'saved' => true]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Failed to save project']);
-        }
-        $insert_stmt->close();
-    }
-
-    $check_stmt->close();
+if ($saved === null) {
+    json_error('Failed to save project');
+} else {
+    json_success([
+        'message' => $saved ? 'Project saved successfully' : 'Project unsaved successfully',
+        'saved' => $saved
+    ]);
 }
 
 $conn->close();

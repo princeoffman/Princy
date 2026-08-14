@@ -1,75 +1,57 @@
 <?php
-include 'config.php';
-
-header('Content-Type: application/json');
+require_once __DIR__ . '/api_helpers.php';
 
 // Check if user is logged in (you might want to implement proper session management)
 session_start();
 
 // For testing purposes, allow upload without session if user_id is provided in POST data
-if (!isset($_SESSION['user_id'])) {
-    if (isset($_POST['user_id'])) {
-        $user_id = (int)$_POST['user_id'];
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Not logged in']);
-        exit;
-    }
-} else {
+if (isset($_SESSION['user_id'])) {
     $user_id = $_SESSION['user_id'];
+} elseif (isset($_POST['user_id'])) {
+    $user_id = (int)$_POST['user_id'];
+} else {
+    json_fail('Not logged in');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Check if file was uploaded
-    if (!isset($_FILES['profile_picture']) || $_FILES['profile_picture']['error'] !== UPLOAD_ERR_OK) {
-        echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
-        exit;
-    }
+require_method('POST');
 
-    $file = $_FILES['profile_picture'];
+// Check if file was uploaded
+if (!isset($_FILES['profile_picture']) || $_FILES['profile_picture']['error'] !== UPLOAD_ERR_OK) {
+    json_fail('No file uploaded or upload error');
+}
 
-    // Validate file type
-    $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($file['type'], $allowed_types)) {
-        echo json_encode(['success' => false, 'message' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.']);
-        exit;
-    }
+$file = $_FILES['profile_picture'];
 
-    // Validate file size (max 5MB)
-    $max_size = 5 * 1024 * 1024; // 5MB in bytes
-    if ($file['size'] > $max_size) {
-        echo json_encode(['success' => false, 'message' => 'File too large. Maximum size is 5MB.']);
-        exit;
-    }
+// Validate file type
+$allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+if (!in_array($file['type'], $allowed_types)) {
+    json_fail('Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.');
+}
 
-    // Generate unique filename
-    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $new_filename = 'user_' . $user_id . '_' . time() . '.' . $file_extension;
-    $upload_path = 'uploads/' . $new_filename;
+// Validate file size (max 5MB)
+$max_size = 5 * 1024 * 1024; // 5MB in bytes
+if ($file['size'] > $max_size) {
+    json_fail('File too large. Maximum size is 5MB.');
+}
 
-    // Move uploaded file
-    if (move_uploaded_file($file['tmp_name'], $upload_path)) {
-        // Update database with new avatar URL
-        $avatar_url = $upload_path;
-        $sql = "UPDATE users SET avatar = ? WHERE id = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("si", $avatar_url, $user_id);
+// Generate unique filename
+$file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+$new_filename = 'user_' . $user_id . '_' . time() . '.' . $file_extension;
+$avatar_url = 'uploads/' . $new_filename;
 
-        if ($stmt->execute()) {
-            echo json_encode([
-                'success' => true,
-                'message' => 'Profile picture updated successfully',
-                'avatar_url' => $avatar_url
-            ]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Failed to update database']);
-        }
+// Move uploaded file
+if (!move_uploaded_file($file['tmp_name'], $avatar_url)) {
+    json_fail('Failed to save file');
+}
 
-        $stmt->close();
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Failed to save file']);
-    }
+// Update database with new avatar URL
+if (execute_write($conn, "UPDATE users SET avatar = ? WHERE id = ?", "si", [$avatar_url, $user_id])) {
+    json_success([
+        'message' => 'Profile picture updated successfully',
+        'avatar_url' => $avatar_url
+    ]);
 } else {
-    echo json_encode(['success' => false, 'message' => 'Invalid request method']);
+    json_error('Failed to update database');
 }
 
 $conn->close();
