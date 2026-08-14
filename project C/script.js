@@ -1,3 +1,40 @@
+// A 401 from any endpoint means the server session is gone; surface it once
+// instead of letting each caller fail silently.
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async function (...args) {
+    const response = await nativeFetch(...args);
+    const url = String(args[0] || '');
+    const isAuthEndpoint = /(login|register|logout|me)\.php/.test(url);
+    if (response.status === 401 && !isAuthEndpoint) {
+        handleSessionExpired();
+    }
+    return response;
+};
+
+// Escapes untrusted values before they are interpolated into innerHTML.
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"'`]/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '`': '&#96;'
+    })[ch]);
+}
+
+// Only http(s) and relative URLs are allowed in src attributes, so a stored
+// value such as "javascript:..." can never be executed.
+function safeImageUrl(value, fallback) {
+    const url = String(value === null || value === undefined ? '' : value).trim();
+    const placeholder = fallback || 'test_image.jpg';
+    if (url === '') return placeholder;
+    if (/^https?:\/\//i.test(url)) return escapeHtml(url);
+    if (/^[^:]*$/.test(url)) return escapeHtml(url);
+    return placeholder;
+}
+
 // Global variables
 let currentUser = null;
 let currentChatUser = null;
@@ -90,7 +127,10 @@ function setupAuthentication() {
     const loginBtn = document.getElementById('loginBtn');
     if (loginBtn) {
         loginBtn.addEventListener('click', function() {
-            console.log('Login button clicked');
+            if (currentUser) {
+                logoutUser();
+                return;
+            }
             showModal('authModal');
         });
     } else {
@@ -199,16 +239,51 @@ function setupAuthentication() {
     });
 }
 
-function checkExistingLogin() {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-        currentUser = JSON.parse(savedUser);
-        updateUIAfterLogin();
-    } else {
-        // Hide user profile if not logged in
-        const userProfile = document.querySelector('.user-profile');
-        if (userProfile) userProfile.style.display = 'none';
+// The server session, not localStorage, decides whether the user is logged in.
+async function checkExistingLogin() {
+    try {
+        const response = await fetch('me.php');
+        const result = response.ok ? await response.json() : null;
+
+        if (result && result.success) {
+            currentUser = result.user;
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            updateUIAfterLogin();
+            return;
+        }
+    } catch (error) {
+        console.error('Session check failed:', error);
     }
+
+    clearLocalSession();
+}
+
+function clearLocalSession() {
+    currentUser = null;
+    localStorage.removeItem('currentUser');
+
+    const userProfile = document.querySelector('.user-profile');
+    if (userProfile) userProfile.style.display = 'none';
+
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) loginBtn.textContent = 'Login';
+}
+
+async function logoutUser() {
+    try {
+        await fetch('logout.php', { method: 'POST' });
+    } catch (error) {
+        console.error('Logout failed:', error);
+    }
+    clearLocalSession();
+    window.location.reload();
+}
+
+// Called when an API rejects the request because the session has expired.
+function handleSessionExpired() {
+    clearLocalSession();
+    alert('Your session has expired. Please log in again.');
+    showModal('authModal');
 }
 
 function updateUIAfterLogin() {
@@ -218,10 +293,10 @@ function updateUIAfterLogin() {
         // Clone and replace to clear existing event listeners
         const newUserProfile = userProfile.cloneNode(false);
         newUserProfile.innerHTML = `
-            <img src="${currentUser.avatar}" alt="${currentUser.full_name}">
+            <img src="${safeImageUrl(currentUser.avatar)}" alt="${escapeHtml(currentUser.full_name)}">
             <div class="user-info">
-                <h4>${currentUser.full_name}</h4>
-                <p>@${currentUser.username}</p>
+                <h4>${escapeHtml(currentUser.full_name)}</h4>
+                <p>@${escapeHtml(currentUser.username)}</p>
             </div>
         `;
 
@@ -235,9 +310,12 @@ function updateUIAfterLogin() {
         userProfile.parentNode.replaceChild(newUserProfile, userProfile);
     }
 
-    // Keep login button visible and show user profile
+    // Keep the button visible, but it now ends the session
     const loginBtn = document.getElementById('loginBtn');
-    if (loginBtn) loginBtn.style.display = 'block'; // Keep login button visible
+    if (loginBtn) {
+        loginBtn.style.display = 'block';
+        loginBtn.textContent = 'Logout';
+    }
     if (userProfile) userProfile.style.display = 'flex';
 
     // Store the updated home content with user info
@@ -311,10 +389,10 @@ function showHomeSection() {
                     <i class="fas fa-moon"></i>
                 </button>
                 <div class="user-profile">
-                    <img src="${currentUser ? currentUser.avatar : 'test_image.jpg'}" alt="User Avatar">
+                    <img src="${currentUser ? safeImageUrl(currentUser.avatar) : 'test_image.jpg'}" alt="User Avatar">
                     <div class="user-info">
-                        <h4>${currentUser ? currentUser.full_name : 'Guest'}</h4>
-                        <p>@${currentUser ? currentUser.username : 'guest'}</p>
+                        <h4>${currentUser ? escapeHtml(currentUser.full_name) : 'Guest'}</h4>
+                        <p>@${currentUser ? escapeHtml(currentUser.username) : 'guest'}</p>
                     </div>
                 </div>
             </div>
@@ -358,7 +436,7 @@ function showExploreSection() {
                     <i class="fas fa-moon"></i>
                 </button>
                 <div class="user-profile">
-                    <img src="${currentUser ? currentUser.avatar : 'test_image.jpg'}" alt="User Avatar">
+                    <img src="${currentUser ? safeImageUrl(currentUser.avatar) : 'test_image.jpg'}" alt="User Avatar">
                 </div>
             </div>
         </div>
@@ -469,10 +547,10 @@ async function showSavedSection() {
                     <i class="fas fa-moon"></i>
                 </button>
                 <div class="user-profile">
-                    <img src="${currentUser.avatar}" alt="${currentUser.full_name}">
+                    <img src="${safeImageUrl(currentUser.avatar)}" alt="${escapeHtml(currentUser.full_name)}">
                     <div class="user-info">
-                        <h4>${currentUser.full_name}</h4>
-                        <p>@${currentUser.username}</p>
+                        <h4>${escapeHtml(currentUser.full_name)}</h4>
+                        <p>@${escapeHtml(currentUser.username)}</p>
                     </div>
                 </div>
             </div>
@@ -1087,7 +1165,7 @@ async function loadConversations() {
 
     try {
         // Load real users from database
-        const response = await fetch('get_users.php' + (currentUser ? `?current_user_id=${currentUser.id}` : ''));
+        const response = await fetch('get_users.php');
         const result = await response.json();
 
         if (result.success) {
@@ -1109,10 +1187,10 @@ async function loadConversations() {
                 const conversationItem = document.createElement('div');
                 conversationItem.className = 'conversation-item';
                 conversationItem.innerHTML = `
-                    <img src="${conversation.user.avatar}" alt="${conversation.user.name}" class="conversation-avatar">
+                    <img src="${safeImageUrl(conversation.user.avatar)}" alt="${escapeHtml(conversation.user.name)}" class="conversation-avatar">
                     <div class="conversation-info">
-                        <h4>${conversation.user.name}</h4>
-                        <p>${conversation.user.lastMessage}</p>
+                        <h4>${escapeHtml(conversation.user.name)}</h4>
+                        <p>${escapeHtml(conversation.user.lastMessage)}</p>
                     </div>
                 `;
 
@@ -1184,10 +1262,10 @@ function loadSampleConversations() {
         const conversationItem = document.createElement('div');
         conversationItem.className = 'conversation-item';
         conversationItem.innerHTML = `
-            <img src="${conversation.user.avatar}" alt="${conversation.user.name}" class="conversation-avatar">
+            <img src="${safeImageUrl(conversation.user.avatar)}" alt="${escapeHtml(conversation.user.name)}" class="conversation-avatar">
             <div class="conversation-info">
-                <h4>${conversation.user.name}</h4>
-                <p>${conversation.user.lastMessage}</p>
+                <h4>${escapeHtml(conversation.user.name)}</h4>
+                <p>${escapeHtml(conversation.user.lastMessage)}</p>
             </div>
         `;
 
@@ -1245,7 +1323,7 @@ async function loadChatMessages(userId) {
 
     try {
         // Load real messages from database
-        const response = await fetch(`get_messages.php?sender_id=${currentUser.id}&receiver_id=${userId}`);
+        const response = await fetch(`get_messages.php?receiver_id=${encodeURIComponent(userId)}`);
         const result = await response.json();
 
         if (result.success && result.messages.length > 0) {
@@ -1254,8 +1332,8 @@ async function loadChatMessages(userId) {
                 messageElement.className = `message ${message.type}`;
                 const messageTime = new Date(message.sent_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                 messageElement.innerHTML = `
-                    <p>${message.message}</p>
-                    <div class="message-time">${messageTime}</div>
+                    <p>${escapeHtml(message.message)}</p>
+                    <div class="message-time">${escapeHtml(messageTime)}</div>
                 `;
                 chatMessages.appendChild(messageElement);
             });
@@ -1309,8 +1387,8 @@ function loadSampleMessages(userId) {
         const messageElement = document.createElement('div');
         messageElement.className = `message ${message.type}`;
         messageElement.innerHTML = `
-            <p>${message.text}</p>
-            <div class="message-time">${message.time}</div>
+            <p>${escapeHtml(message.text)}</p>
+            <div class="message-time">${escapeHtml(message.time)}</div>
         `;
         chatMessages.appendChild(messageElement);
     });
@@ -1352,8 +1430,8 @@ function setupChatSendMessage() {
                 const sentMsg = document.createElement('div');
                 sentMsg.className = 'message sent';
                 sentMsg.innerHTML = `
-                    <p>${message}</p>
-                    <div class="message-time">${timeString}</div>
+                    <p>${escapeHtml(message)}</p>
+                    <div class="message-time">${escapeHtml(timeString)}</div>
                 `;
                 chatMessages.appendChild(sentMsg);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1367,7 +1445,6 @@ function setupChatSendMessage() {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        sender_id: currentUser.id,
                         receiver_id: currentChatUser.id,
                         message: message
                     })
@@ -1504,14 +1581,14 @@ function displayProjects(projects) {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.innerHTML = `
-            <img src="${project.image}" alt="${project.title}" class="project-image">
+            <img src="${safeImageUrl(project.image)}" alt="${escapeHtml(project.title)}" class="project-image">
             <div class="project-info">
-                <h3 class="project-title">${project.title}</h3>
-                <p class="project-description">${project.description}</p>
+                <h3 class="project-title">${escapeHtml(project.title)}</h3>
+                <p class="project-description">${escapeHtml(project.description)}</p>
                 <div class="project-meta">
                     <div class="project-author">
-                        <img src="${project.author_avatar}" alt="${project.author_name}" class="author-avatar">
-                        <span>${project.author_name}</span>
+                        <img src="${safeImageUrl(project.author_avatar)}" alt="${escapeHtml(project.author_name)}" class="author-avatar">
+                        <span>${escapeHtml(project.author_name)}</span>
                     </div>
                     <div class="project-likes">
                         <i class="far fa-heart like-btn" data-project-id="${project.id}"></i> ${project.like_count || 0}
@@ -1520,7 +1597,7 @@ function displayProjects(projects) {
                 <div class="project-actions">
                     <button class="btn btn-outline save-project-btn" data-project-id="${project.id}"><i class="far fa-bookmark"></i> Save</button>
                     <button class="btn btn-primary message-user"
-                            data-user="${project.author_name}"
+                            data-user="${escapeHtml(project.author_name)}"
                             data-user-id="${project.user_id}">
                         <i class="far fa-comment"></i> Message
                     </button>
@@ -1726,7 +1803,6 @@ function attachSaveProjectListeners() {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: currentUser.id,
                         project_id: projectId
                     })
                 });
@@ -1780,7 +1856,6 @@ function attachLikeProjectListeners() {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: currentUser.id,
                         project_id: projectId
                     })
                 });
@@ -1852,11 +1927,6 @@ function setupProfilePictureUpload() {
         if (!file) {
             showUploadStatus('Please select a file to upload.', 'error');
             return;
-        }
-
-        // Add user_id to form data for testing
-        if (currentUser && currentUser.id) {
-            formData.append('user_id', currentUser.id);
         }
 
         // Show loading status
@@ -1974,7 +2044,7 @@ async function loadSavedProjects() {
     }
 
     try {
-        const response = await fetch(`get_saved_projects.php?user_id=${currentUser.id}`);
+        const response = await fetch('get_saved_projects.php');
         const result = await response.json();
 
         if (result.success && result.projects.length > 0) {
@@ -1985,25 +2055,25 @@ async function loadSavedProjects() {
                 const card = document.createElement('div');
                 card.className = 'project-card';
                 card.innerHTML = `
-                    <img src="${project.image}" alt="${project.title}" class="project-image">
+                    <img src="${safeImageUrl(project.image)}" alt="${escapeHtml(project.title)}" class="project-image">
                     <div class="project-info">
-                        <h3 class="project-title">${project.title}</h3>
-                        <p class="project-description">${project.description}</p>
+                        <h3 class="project-title">${escapeHtml(project.title)}</h3>
+                        <p class="project-description">${escapeHtml(project.description)}</p>
                         <div class="project-meta">
                             <div class="project-author">
-                                <img src="${project.author_avatar}" alt="${project.author_name}" class="author-avatar">
-                                <span>${project.author_name}</span>
+                                <img src="${safeImageUrl(project.author_avatar)}" alt="${escapeHtml(project.author_name)}" class="author-avatar">
+                                <span>${escapeHtml(project.author_name)}</span>
                             </div>
                             <div class="saved-date">
                                 <i class="fas fa-calendar-alt"></i> Saved ${new Date(project.saved_at).toLocaleDateString()}
                             </div>
                         </div>
                         <div class="project-actions">
-                            <button class="btn btn-outline saved" onclick="unsaveProject(${project.id})">
+                            <button class="btn btn-outline saved" onclick="unsaveProject(${Number(project.id)})">
                                 <i class="fas fa-bookmark"></i> Saved
                             </button>
                             <button class="btn btn-primary message-user"
-                                    data-user="${project.author_name}"
+                                    data-user="${escapeHtml(project.author_name)}"
                                     data-user-id="${project.user_id}">
                                 <i class="far fa-comment"></i> Message
                             </button>
@@ -2040,7 +2110,6 @@ async function unsaveProject(projectId) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                user_id: currentUser.id,
                 project_id: projectId
             })
         });
@@ -2294,14 +2363,14 @@ function displayProjectsInGrid(projects, grid) {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.innerHTML = `
-            <img src="${project.image}" alt="${project.title}" class="project-image">
+            <img src="${safeImageUrl(project.image)}" alt="${escapeHtml(project.title)}" class="project-image">
             <div class="project-info">
-                <h3 class="project-title">${project.title}</h3>
-                <p class="project-description">${project.description}</p>
+                <h3 class="project-title">${escapeHtml(project.title)}</h3>
+                <p class="project-description">${escapeHtml(project.description)}</p>
                 <div class="project-meta">
                     <div class="project-author">
-                        <img src="${project.author_avatar}" alt="${project.author_name}" class="author-avatar">
-                        <span>${project.author_name}</span>
+                        <img src="${safeImageUrl(project.author_avatar)}" alt="${escapeHtml(project.author_name)}" class="author-avatar">
+                        <span>${escapeHtml(project.author_name)}</span>
                     </div>
                     <div class="project-likes">
                         <i class="far fa-heart"></i> ${Math.floor(Math.random() * 200) + 50}
@@ -2310,7 +2379,7 @@ function displayProjectsInGrid(projects, grid) {
                 <div class="project-actions">
                     <button class="btn btn-outline save-project-btn" data-project-id="${project.id}"><i class="far fa-bookmark"></i> Save</button>
                     <button class="btn btn-primary message-user"
-                            data-user="${project.author_name}"
+                            data-user="${escapeHtml(project.author_name)}"
                             data-user-id="${project.user_id}">
                         <i class="far fa-comment"></i> Message
                     </button>
@@ -2495,7 +2564,6 @@ function setupAddProjectForm() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    user_id: currentUser.id,
                     title: title,
                     description: description,
                     image: image
@@ -2548,7 +2616,6 @@ function setupAddContactForm() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    user_id: currentUser.id,
                     contact_name: contactName,
                     contact_email: contactEmail || null,
                     contact_phone: contactPhone || null,
@@ -2587,7 +2654,7 @@ async function loadContacts() {
     }
 
     try {
-        const response = await fetch(`get_contacts.php?user_id=${currentUser.id}`);
+        const response = await fetch('get_contacts.php');
         const result = await response.json();
 
         if (result.success) {
@@ -2599,10 +2666,10 @@ async function loadContacts() {
                     contactItem.className = 'contact-item';
                     contactItem.innerHTML = `
                         <div class="contact-info">
-                            <h4>${contact.contact_name}</h4>
-                            ${contact.contact_email ? `<p><i class="fas fa-envelope"></i> ${contact.contact_email}</p>` : ''}
-                            ${contact.contact_phone ? `<p><i class="fas fa-phone"></i> ${contact.contact_phone}</p>` : ''}
-                            ${contact.contact_notes ? `<p><i class="fas fa-sticky-note"></i> ${contact.contact_notes}</p>` : ''}
+                            <h4>${escapeHtml(contact.contact_name)}</h4>
+                            ${contact.contact_email ? `<p><i class="fas fa-envelope"></i> ${escapeHtml(contact.contact_email)}</p>` : ''}
+                            ${contact.contact_phone ? `<p><i class="fas fa-phone"></i> ${escapeHtml(contact.contact_phone)}</p>` : ''}
+                            ${contact.contact_notes ? `<p><i class="fas fa-sticky-note"></i> ${escapeHtml(contact.contact_notes)}</p>` : ''}
                             <small>Added: ${new Date(contact.created_at).toLocaleDateString()}</small>
                         </div>
                     `;

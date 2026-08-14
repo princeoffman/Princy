@@ -1,0 +1,4 @@
+# Uploaded files are user controlled: serve them as data, never execute them.
+php_flag engine off
+AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .phps .cgi .pl .py .sh
+Options -ExecCGI -Indexes

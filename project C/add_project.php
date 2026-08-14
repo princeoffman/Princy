@@ -1,57 +1,60 @@
 <?php
 include 'config.php';
+require_once __DIR__ . '/auth.php';
 
-header('Content-Type: application/json');
+require_method('POST');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents('php://input'), true);
+// Projects are always created for the logged-in user.
+$user_id = require_login();
 
-    if (!isset($data['user_id']) || !isset($data['title']) || !isset($data['description'])) {
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
-        exit;
-    }
+$data = json_body();
 
-    $user_id = $data['user_id'];
-    $title = trim($data['title']);
-    $description = trim($data['description']);
-    $image = isset($data['image']) ? trim($data['image']) : 'https://images.unsplash.com/photo-1555949963-aa79dcee981c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
+$title = isset($data['title']) ? trim((string)$data['title']) : '';
+$description = isset($data['description']) ? trim((string)$data['description']) : '';
+$image = isset($data['image']) ? trim((string)$data['image']) : '';
 
-    if (empty($title) || empty($description)) {
-        echo json_encode(['success' => false, 'message' => 'Title and description cannot be empty']);
-        exit;
-    }
+$default_image = 'https://images.unsplash.com/photo-1555949963-aa79dcee981c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
 
-    // Verify user exists
-    $check_user_sql = "SELECT id FROM users WHERE id = ?";
-    $check_user_stmt = $conn->prepare($check_user_sql);
-    $check_user_stmt->bind_param("i", $user_id);
-    $check_user_stmt->execute();
-    $check_user_result = $check_user_stmt->get_result();
-
-    if ($check_user_result->num_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'User does not exist']);
-        exit;
-    }
-    $check_user_stmt->close();
-
-    // Insert new project
-    $insert_sql = "INSERT INTO projects (user_id, title, description, image) VALUES (?, ?, ?, ?)";
-    $insert_stmt = $conn->prepare($insert_sql);
-    $insert_stmt->bind_param("isss", $user_id, $title, $description, $image);
-
-    if ($insert_stmt->execute()) {
-        $project_id = $conn->insert_id;
-        echo json_encode([
-            'success' => true,
-            'message' => 'Project added successfully',
-            'project_id' => $project_id
-        ]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Failed to add project: ' . $insert_stmt->error]);
-    }
-
-    $insert_stmt->close();
+if ($title === '' || $description === '') {
+    echo json_encode(['success' => false, 'message' => 'Title and description cannot be empty']);
+    exit;
 }
 
+if (mb_strlen($title) > 255) {
+    echo json_encode(['success' => false, 'message' => 'Title is too long']);
+    exit;
+}
+
+if (mb_strlen($description) > 5000) {
+    echo json_encode(['success' => false, 'message' => 'Description is too long']);
+    exit;
+}
+
+// Only absolute http(s) URLs are accepted so the image cannot become a
+// javascript: or data: payload when rendered.
+if ($image === '') {
+    $image = $default_image;
+} else {
+    $scheme = strtolower((string)parse_url($image, PHP_URL_SCHEME));
+    if (!in_array($scheme, ['http', 'https'], true) || strlen($image) > 255) {
+        echo json_encode(['success' => false, 'message' => 'Image must be an http(s) URL']);
+        exit;
+    }
+}
+
+$insert_stmt = $conn->prepare("INSERT INTO projects (user_id, title, description, image) VALUES (?, ?, ?, ?)");
+$insert_stmt->bind_param("isss", $user_id, $title, $description, $image);
+
+if ($insert_stmt->execute()) {
+    echo json_encode([
+        'success' => true,
+        'message' => 'Project added successfully',
+        'project_id' => $conn->insert_id
+    ]);
+} else {
+    error_log('Failed to add project: ' . $insert_stmt->error);
+    echo json_encode(['success' => false, 'message' => 'Failed to add project']);
+}
+
+$insert_stmt->close();
 $conn->close();
-?>
