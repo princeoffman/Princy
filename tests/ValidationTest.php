@@ -33,6 +33,54 @@ class ValidationTest extends TestCase
         ];
     }
 
+    public function testValidateRegisterInputAcceptsValidData()
+    {
+        $result = validate_register_input([
+            'username' => ' prince ',
+            'email' => 'prince@example.com',
+            'password' => 'secret1',
+            'full_name' => 'Prince T',
+        ]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('prince', $result['username']);
+        $this->assertSame('prince@example.com', $result['email']);
+        $this->assertSame('secret1', $result['password']);
+        $this->assertSame('Prince T', $result['full_name']);
+    }
+
+    /**
+     * @dataProvider invalidRegistrations
+     */
+    public function testValidateRegisterInputRejectsInvalidData($data, $expected)
+    {
+        $result = validate_register_input($data);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame($expected, $result['message']);
+    }
+
+    public function invalidRegistrations()
+    {
+        $valid = [
+            'username' => 'prince',
+            'email' => 'prince@example.com',
+            'password' => 'secret1',
+            'full_name' => 'Prince T',
+        ];
+
+        return [
+            'not an array' => [null, 'Invalid JSON'],
+            'missing username' => [array_diff_key($valid, ['username' => 1]), 'All fields are required'],
+            'missing email' => [array_diff_key($valid, ['email' => 1]), 'All fields are required'],
+            'missing password' => [array_diff_key($valid, ['password' => 1]), 'All fields are required'],
+            'missing full name' => [array_diff_key($valid, ['full_name' => 1]), 'All fields are required'],
+            'blank username' => [array_merge($valid, ['username' => '   ']), 'All fields are required'],
+            'bad email' => [array_merge($valid, ['email' => 'not-an-email']), 'Please enter a valid email address'],
+            'short password' => [array_merge($valid, ['password' => 'abc']), 'Password must be at least 6 characters'],
+        ];
+    }
+
     public function testValidateLoginInputAcceptsCredentials()
     {
         $result = validate_login_input(['username' => 'prince', 'password' => 'pw']);
