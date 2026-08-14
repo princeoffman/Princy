@@ -9,6 +9,85 @@ let originalHomeContent = null; // Store original home content
 let seconds = 0, minutes = 0, hours = 0;
 let timeInterval;
 
+// Reads the body of an API response as JSON. A non-JSON body (PHP fatal error,
+// HTML error page, empty response) is turned into an Error instead of a
+// confusing "Unexpected token" parse failure, and HTTP errors are reported even
+// when the body has no success flag.
+async function parseJsonResponse(response) {
+    const text = await response.text();
+    let payload = null;
+
+    if (text) {
+        try {
+            payload = JSON.parse(text);
+        } catch (parseError) {
+            console.error('Non-JSON response from', response.url, response.status, text.slice(0, 500));
+        }
+    }
+
+    if (payload === null || typeof payload !== 'object') {
+        throw new Error(`Server returned an unreadable response (HTTP ${response.status} ${response.statusText})`);
+    }
+
+    if (!response.ok) {
+        console.error('API error from', response.url, response.status, payload);
+        if (payload.success === undefined) {
+            payload.success = false;
+        }
+        if (!payload.message) {
+            payload.message = `Request failed (HTTP ${response.status})`;
+        }
+    }
+
+    return payload;
+}
+
+// Reads JSON out of localStorage without letting a corrupt value break
+// initialization: the bad entry is reported and discarded.
+function readStoredJson(key, fallback) {
+    const raw = localStorage.getItem(key);
+    if (raw === null) {
+        return fallback;
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed === null ? fallback : parsed;
+    } catch (error) {
+        console.error(`Discarding corrupt localStorage entry "${key}":`, error);
+        localStorage.removeItem(key);
+        return fallback;
+    }
+}
+
+// Rolls back an optimistically rendered chat message when the send failed, so
+// the UI does not show an unsent message as delivered.
+function markMessageAsUnsent(messageElement, inputElement, text) {
+    if (messageElement) {
+        messageElement.remove();
+    }
+
+    if (inputElement && inputElement.value.trim() === '') {
+        inputElement.value = text;
+    }
+}
+
+// Surfaces a backend failure that would otherwise be hidden behind sample data.
+function showConnectionNotice(message) {
+    let notice = document.getElementById('connectionNotice');
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'connectionNotice';
+        notice.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:2000;max-width:360px;padding:10px 14px;' +
+            'border-radius:6px;background:#b3261e;color:#fff;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer';
+        notice.title = 'Click to dismiss';
+        notice.addEventListener('click', () => notice.remove());
+        document.body.appendChild(notice);
+    }
+
+    notice.textContent = message;
+}
+
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Initializing ProjectConnect...');
@@ -141,7 +220,7 @@ function setupAuthentication() {
                 body: JSON.stringify({ username, password })
             });
             
-            const result = await response.json();
+            const result = await parseJsonResponse(response);
             
             if (result.success) {
                 currentUser = result.user;
@@ -155,7 +234,7 @@ function setupAuthentication() {
             }
         } catch (error) {
             console.error('Login error:', error);
-            alert('Login failed. Please try again.');
+            alert('Login failed: ' + error.message);
         }
     });
     
@@ -182,7 +261,7 @@ function setupAuthentication() {
                 })
             });
             
-            const result = await response.json();
+            const result = await parseJsonResponse(response);
             
             if (result.success) {
                 alert('Registration successful! Please login with your credentials.');
@@ -194,15 +273,15 @@ function setupAuthentication() {
             }
         } catch (error) {
             console.error('Registration error:', error);
-            alert('Registration failed. Please try again.');
+            alert('Registration failed: ' + error.message);
         }
     });
 }
 
 function checkExistingLogin() {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-        currentUser = JSON.parse(savedUser);
+    const savedUser = readStoredJson('currentUser', null);
+    if (savedUser && savedUser.id) {
+        currentUser = savedUser;
         updateUIAfterLogin();
     } else {
         // Hide user profile if not logged in
@@ -601,7 +680,7 @@ function loadSettings() {
     console.log('Loading settings...');
 
     // Load saved settings or use defaults
-    const savedSettings = JSON.parse(localStorage.getItem('userSettings')) || {};
+    const savedSettings = readStoredJson('userSettings', {});
 
     // Account Settings
     if (currentUser) {
@@ -767,7 +846,7 @@ function savePrivacySettings() {
     };
 
     localStorage.setItem('userSettings', JSON.stringify({
-        ...JSON.parse(localStorage.getItem('userSettings') || '{}'),
+        ...readStoredJson('userSettings', {}),
         ...settings
     }));
 
@@ -783,7 +862,7 @@ function saveNotificationSettings() {
     };
 
     localStorage.setItem('userSettings', JSON.stringify({
-        ...JSON.parse(localStorage.getItem('userSettings') || '{}'),
+        ...readStoredJson('userSettings', {}),
         ...settings
     }));
 
@@ -796,7 +875,7 @@ function applyThemeSettings() {
 
     setTheme(selectedTheme);
 
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = readStoredJson('userSettings', {});
     settings.autoTheme = autoTheme;
     localStorage.setItem('userSettings', JSON.stringify(settings));
 
@@ -828,7 +907,7 @@ function saveKidModeSettings() {
     }
 
     // Save settings
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = readStoredJson('userSettings', {});
     settings.kidModeEnabled = kidModeEnabled;
     settings.kidModeTimeLimit = kidModeTimeLimit;
     settings.kidModePassword = kidModeEnabled ? kidModePassword : '';
@@ -848,7 +927,7 @@ function setupTestKidModeLock() {
     console.log('Setting up Kid Mode lock...');
 
     // Load Kid Mode settings
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = readStoredJson('userSettings', {});
 
     // Check if Kid Mode is already locked (persists across page refreshes)
     const isLocked = localStorage.getItem('kidModeLocked') === 'true';
@@ -956,7 +1035,7 @@ function showKidModeLockScreen() {
 
     const attemptUnlock = () => {
         const enteredPassword = passwordInput.value;
-        const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+        const settings = readStoredJson('userSettings', {});
         const correctPassword = settings.kidModePassword;
 
         if (enteredPassword === correctPassword) {
@@ -998,7 +1077,7 @@ function unlockKidMode() {
     }
 
     // Restart monitoring
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = readStoredJson('userSettings', {});
     if (settings.kidModeEnabled) {
         startKidModeMonitoring(settings.kidModeTimeLimit);
     }
@@ -1049,7 +1128,7 @@ async function playUnlockSound() {
 function updateKidModeState() {
     console.log('Updating Kid Mode state...');
 
-    const settings = JSON.parse(localStorage.getItem('userSettings') || '{}');
+    const settings = readStoredJson('userSettings', {});
 
     if (settings.kidModeEnabled) {
         // Clear any existing lock
@@ -1088,7 +1167,7 @@ async function loadConversations() {
     try {
         // Load real users from database
         const response = await fetch('get_users.php' + (currentUser ? `?current_user_id=${currentUser.id}` : ''));
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success) {
             conversations = result.users.map(user => ({
@@ -1125,11 +1204,13 @@ async function loadConversations() {
             });
         } else {
             console.error('Failed to load users:', result.message);
+            showConnectionNotice('Could not load contacts: ' + result.message + ' Showing sample conversations.');
             // Fallback to sample conversations
             loadSampleConversations();
         }
     } catch (error) {
         console.error('Error loading conversations:', error);
+        showConnectionNotice('Could not load contacts: ' + error.message + ' Showing sample conversations.');
         // Fallback to sample conversations
         loadSampleConversations();
     }
@@ -1246,7 +1327,7 @@ async function loadChatMessages(userId) {
     try {
         // Load real messages from database
         const response = await fetch(`get_messages.php?sender_id=${currentUser.id}&receiver_id=${userId}`);
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.messages.length > 0) {
             result.messages.forEach(message => {
@@ -1271,6 +1352,7 @@ async function loadChatMessages(userId) {
         }
     } catch (error) {
         console.error('Error loading messages:', error);
+        showConnectionNotice('Could not load this conversation: ' + error.message + ' Showing sample messages.');
         // Fallback to sample messages
         loadSampleMessages(userId);
     }
@@ -1344,12 +1426,13 @@ function setupChatSendMessage() {
             console.log('Current user:', currentUser);
             console.log('Current chat user:', currentChatUser);
 
+            let sentMsg = null;
             try {
                 // Add sent message to UI immediately (optimistic update)
                 const now = new Date();
                 const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
-                const sentMsg = document.createElement('div');
+                sentMsg = document.createElement('div');
                 sentMsg.className = 'message sent';
                 sentMsg.innerHTML = `
                     <p>${message}</p>
@@ -1374,25 +1457,32 @@ function setupChatSendMessage() {
                 });
 
                 console.log('Fetch response status:', response.status);
-                const result = await response.json();
+                const result = await parseJsonResponse(response);
                 console.log('API response:', result);
 
                 if (result.success) {
                     console.log('Message sent successfully to database');
                 } else {
                     console.error('API returned error:', result.message);
-                    // Optionally show error but keep message in UI
+                    markMessageAsUnsent(sentMsg, newChatInput, message);
                     alert('Failed to send message: ' + result.message);
                 }
             } catch (error) {
                 console.error('Send message error:', error);
-                alert('Failed to send message. Please try again.');
+                markMessageAsUnsent(sentMsg, newChatInput, message);
+                alert('Failed to send message: ' + error.message);
             }
         } else {
-            console.log('Missing required data for sending message');
-            console.log('Message:', message);
-            console.log('Current user:', currentUser);
-            console.log('Current chat user:', currentChatUser);
+            const missing = [
+                !message && 'a message',
+                !currentUser && 'a logged in user',
+                !currentChatUser && 'a selected conversation',
+                !chatMessages && 'the chat window'
+            ].filter(Boolean);
+            console.error('Cannot send message, missing:', missing.join(', '));
+            if (message) {
+                alert('Cannot send message: missing ' + missing.join(', ') + '.');
+            }
         }
     };
     
@@ -1446,15 +1536,20 @@ async function loadProjects() {
     try {
         console.log('Loading projects...');
         const response = await fetch('get_projects.php');
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.projects.length > 0) {
             displayProjects(result.projects);
         } else {
+            if (!result.success) {
+                console.error('Failed to load projects:', result.message);
+                showConnectionNotice('Could not load projects: ' + result.message + ' Showing sample projects.');
+            }
             displayProjects(getSampleProjects());
         }
     } catch (error) {
         console.error('Error loading projects:', error);
+        showConnectionNotice('Could not load projects: ' + error.message + ' Showing sample projects.');
         displayProjects(getSampleProjects());
     }
 }
@@ -1731,7 +1826,7 @@ function attachSaveProjectListeners() {
                     })
                 });
 
-                const result = await response.json();
+                const result = await parseJsonResponse(response);
 
                 if (result.success) {
                     const icon = this.querySelector('i');
@@ -1748,7 +1843,7 @@ function attachSaveProjectListeners() {
                 }
             } catch (error) {
                 console.error('Save project error:', error);
-                alert('Failed to save project. Please try again.');
+                alert('Failed to save project: ' + error.message);
             }
         });
     });
@@ -1785,7 +1880,7 @@ function attachLikeProjectListeners() {
                     })
                 });
 
-                const result = await response.json();
+                const result = await parseJsonResponse(response);
 
                 if (result.success) {
                     // Update the like count
@@ -1807,7 +1902,7 @@ function attachLikeProjectListeners() {
                 }
             } catch (error) {
                 console.error('Like project error:', error);
-                alert('Failed to like project. Please try again.');
+                alert('Failed to like project: ' + error.message);
             }
         });
     });
@@ -1868,7 +1963,7 @@ function setupProfilePictureUpload() {
                 body: formData
             });
 
-            const result = await response.json();
+            const result = await parseJsonResponse(response);
 
             if (result.success) {
                 // Update current user avatar
@@ -1898,7 +1993,7 @@ function setupProfilePictureUpload() {
             }
         } catch (error) {
             console.error('Upload error:', error);
-            showUploadStatus('Upload failed. Please try again.', 'error');
+            showUploadStatus('Upload failed: ' + error.message, 'error');
         }
     });
 
@@ -1975,7 +2070,7 @@ async function loadSavedProjects() {
 
     try {
         const response = await fetch(`get_saved_projects.php?user_id=${currentUser.id}`);
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.projects.length > 0) {
             grid.innerHTML = '';
@@ -2021,7 +2116,7 @@ async function loadSavedProjects() {
         }
     } catch (error) {
         console.error('Error loading saved projects:', error);
-        grid.innerHTML = '<p style="color: var(--danger); text-align: center;">Failed to load saved projects. Please try again.</p>';
+        grid.innerHTML = `<p style="color: var(--danger); text-align: center;">Failed to load saved projects: ${error.message}</p>`;
         noSavedDiv.style.display = 'none';
     }
 }
@@ -2045,7 +2140,7 @@ async function unsaveProject(projectId) {
             })
         });
 
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success) {
             alert(result.message);
@@ -2056,7 +2151,7 @@ async function unsaveProject(projectId) {
         }
     } catch (error) {
         console.error('Unsave project error:', error);
-        alert('Failed to unsave project. Please try again.');
+        alert('Failed to unsave project: ' + error.message);
     }
 }
 
@@ -2136,7 +2231,7 @@ async function loadTrendingProjects() {
     try {
         // Try to load from database first
         const response = await fetch('get_projects.php?sort=trending');
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.projects.length > 0) {
             displayProjectsInGrid(result.projects, grid);
@@ -2151,6 +2246,7 @@ async function loadTrendingProjects() {
         }
     } catch (error) {
         console.error('Error loading trending projects:', error);
+        showConnectionNotice('Could not load trending projects: ' + error.message + ' Showing sample projects.');
         // Fallback to sample projects
         const trendingProjects = getSampleProjects().map(project => ({
             ...project,
@@ -2173,7 +2269,7 @@ async function loadNewProjects() {
     try {
         // Try to load from database first
         const response = await fetch('get_projects.php?sort=new');
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.projects.length > 0) {
             displayProjectsInGrid(result.projects, grid);
@@ -2184,6 +2280,7 @@ async function loadNewProjects() {
         }
     } catch (error) {
         console.error('Error loading new projects:', error);
+        showConnectionNotice('Could not load new projects: ' + error.message + ' Showing sample projects.');
         // Fallback to sample projects
         const newProjects = [...getSampleProjects()].reverse();
         displayProjectsInGrid(newProjects, grid);
@@ -2202,7 +2299,7 @@ async function searchProjects(query) {
     try {
         // Try to search from database first
         const response = await fetch(`get_projects.php?search=${encodeURIComponent(query)}`);
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success && result.projects.length > 0) {
             displayProjectsInGrid(result.projects, grid);
@@ -2229,6 +2326,7 @@ async function searchProjects(query) {
         }
     } catch (error) {
         console.error('Error searching projects:', error);
+        showConnectionNotice('Search failed on the server: ' + error.message + ' Showing local results.');
         // Fallback to client-side search
         const allProjects = getSampleProjects();
         const filteredProjects = allProjects.filter(project =>
@@ -2488,6 +2586,12 @@ function setupAddProjectForm() {
             return;
         }
 
+        if (!currentUser) {
+            alert('Please login to add a project');
+            showModal('authModal');
+            return;
+        }
+
         try {
             const response = await fetch('add_project.php', {
                 method: 'POST',
@@ -2502,7 +2606,7 @@ function setupAddProjectForm() {
                 })
             });
 
-            const result = await response.json();
+            const result = await parseJsonResponse(response);
 
             if (result.success) {
                 alert('Project added successfully!');
@@ -2515,7 +2619,7 @@ function setupAddProjectForm() {
             }
         } catch (error) {
             console.error('Add project error:', error);
-            alert('Failed to add project. Please try again.');
+            alert('Failed to add project: ' + error.message);
         }
     });
 }
@@ -2541,6 +2645,12 @@ function setupAddContactForm() {
             return;
         }
 
+        if (!currentUser) {
+            alert('Please login to add a contact');
+            showModal('authModal');
+            return;
+        }
+
         try {
             const response = await fetch('add_contact.php', {
                 method: 'POST',
@@ -2556,7 +2666,7 @@ function setupAddContactForm() {
                 })
             });
 
-            const result = await response.json();
+            const result = await parseJsonResponse(response);
 
             if (result.success) {
                 alert('Contact added successfully!');
@@ -2567,7 +2677,7 @@ function setupAddContactForm() {
             }
         } catch (error) {
             console.error('Add contact error:', error);
-            alert('Failed to add contact. Please try again.');
+            alert('Failed to add contact: ' + error.message);
         }
     });
 }
@@ -2588,7 +2698,7 @@ async function loadContacts() {
 
     try {
         const response = await fetch(`get_contacts.php?user_id=${currentUser.id}`);
-        const result = await response.json();
+        const result = await parseJsonResponse(response);
 
         if (result.success) {
             contactsContainer.innerHTML = '';
@@ -2619,11 +2729,11 @@ async function loadContacts() {
             }
         } else {
             console.error('Failed to load contacts:', result.message);
-            contactsContainer.innerHTML = '<p style="color: var(--danger); text-align: center;">Failed to load contacts.</p>';
+            contactsContainer.innerHTML = `<p style="color: var(--danger); text-align: center;">Failed to load contacts: ${result.message}</p>`;
         }
     } catch (error) {
         console.error('Error loading contacts:', error);
-        contactsContainer.innerHTML = '<p style="color: var(--danger); text-align: center;">Failed to load contacts. Please try again.</p>';
+        contactsContainer.innerHTML = `<p style="color: var(--danger); text-align: center;">Failed to load contacts: ${error.message}</p>`;
     }
 }
 

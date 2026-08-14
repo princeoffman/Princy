@@ -1,89 +1,52 @@
 <?php
 include 'config.php';
 
-header('Content-Type: application/json');
+require_request_method('POST');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = null;
+// Accept both JSON and form-encoded bodies.
+$content_type = $_SERVER['CONTENT_TYPE'] ?? '';
+$data = strpos($content_type, 'application/json') !== false ? read_json_body() : $_POST;
 
-    // Check if input is JSON
-    $content_type = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '';
-    if (strpos($content_type, 'application/json') !== false) {
-        $raw_input = file_get_contents('php://input');
-        error_log("Raw JSON input: " . $raw_input); // Debug log
-        $data = json_decode($raw_input, true);
+require_fields($data, ['sender_id', 'receiver_id', 'message']);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log("JSON decode error: " . json_last_error_msg()); // Debug log
-            echo json_encode(['success' => false, 'message' => 'Invalid JSON']);
-            exit;
-        }
-    } else {
-        // Handle form data
-        error_log("Form data received: " . print_r($_POST, true)); // Debug log
-        $data = $_POST;
-    }
+$sender_id = require_positive_int($data['sender_id'], 'sender ID');
+$receiver_id = require_positive_int($data['receiver_id'], 'receiver ID');
+$message = trim($data['message']);
 
-    if (!isset($data['sender_id']) || !isset($data['receiver_id']) || !isset($data['message'])) {
-        error_log("Missing fields. Data: " . print_r($data, true)); // Debug log
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
-        exit;
-    }
-
-    $sender_id = intval($data['sender_id']);
-    $receiver_id = intval($data['receiver_id']);
-    $message = trim($data['message']);
-
-    if (empty($message)) {
-        echo json_encode(['success' => false, 'message' => 'Message cannot be empty']);
-        exit;
-    }
-
-    // Validate sender and receiver IDs
-    if ($sender_id <= 0 || $receiver_id <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid sender or receiver ID']);
-        exit;
-    }
-
-    // Check if sender and receiver are different users
-    if ($sender_id === $receiver_id) {
-        echo json_encode(['success' => false, 'message' => 'Cannot send message to yourself']);
-        exit;
-    }
-
-    // Verify sender exists
-    $check_sender = $conn->prepare("SELECT id FROM users WHERE id = ?");
-    $check_sender->bind_param("i", $sender_id);
-    $check_sender->execute();
-    if ($check_sender->get_result()->num_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'Sender does not exist']);
-        exit;
-    }
-    $check_sender->close();
-
-    // Verify receiver exists
-    $check_receiver = $conn->prepare("SELECT id FROM users WHERE id = ?");
-    $check_receiver->bind_param("i", $receiver_id);
-    $check_receiver->execute();
-    if ($check_receiver->get_result()->num_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'Receiver does not exist']);
-        exit;
-    }
-    $check_receiver->close();
-
-    // Insert message into database
-    $sql = "INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iis", $sender_id, $receiver_id, $message);
-
-    if ($stmt->execute()) {
-        echo json_encode(['success' => true, 'message' => 'Message sent successfully']);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Failed to send message']);
-    }
-
-    $stmt->close();
+if ($message === '') {
+    json_fail('Message cannot be empty', 400);
 }
 
+if ($sender_id === $receiver_id) {
+    json_fail('Cannot send message to yourself', 400);
+}
+
+// Verify both participants exist
+$check_users = $conn->prepare("SELECT id FROM users WHERE id IN (?, ?)");
+$check_users->bind_param("ii", $sender_id, $receiver_id);
+$check_users->execute();
+$existing_ids = [];
+$check_result = $check_users->get_result();
+while ($row = $check_result->fetch_assoc()) {
+    $existing_ids[] = (int)$row['id'];
+}
+$check_users->close();
+
+if (!in_array($sender_id, $existing_ids, true)) {
+    json_fail('Sender does not exist', 404, 'sender_id ' . $sender_id);
+}
+
+if (!in_array($receiver_id, $existing_ids, true)) {
+    json_fail('Receiver does not exist', 404, 'receiver_id ' . $receiver_id);
+}
+
+// Insert message into database
+$stmt = $conn->prepare("INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)");
+$stmt->bind_param("iis", $sender_id, $receiver_id, $message);
+$stmt->execute();
+$message_id = $conn->insert_id;
+$stmt->close();
+
+json_success(['message' => 'Message sent successfully', 'message_id' => $message_id], 201);
+
 $conn->close();
-?>

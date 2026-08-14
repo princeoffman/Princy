@@ -1,58 +1,43 @@
 <?php
 include 'config.php';
 
-header('Content-Type: application/json');
+require_request_method('POST');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents('php://input'), true);
+$data = read_json_body();
+require_fields($data, ['user_id', 'contact_name']);
 
-    if (!isset($data['user_id']) || !isset($data['contact_name'])) {
-        echo json_encode(['success' => false, 'message' => 'Missing required fields']);
-        exit;
-    }
+$user_id = require_positive_int($data['user_id'], 'user ID');
+$contact_name = trim($data['contact_name']);
+$contact_email = isset($data['contact_email']) ? trim($data['contact_email']) : null;
+$contact_phone = isset($data['contact_phone']) ? trim($data['contact_phone']) : null;
+$contact_notes = isset($data['contact_notes']) ? trim($data['contact_notes']) : null;
 
-    $user_id = $data['user_id'];
-    $contact_name = trim($data['contact_name']);
-    $contact_email = isset($data['contact_email']) ? trim($data['contact_email']) : null;
-    $contact_phone = isset($data['contact_phone']) ? trim($data['contact_phone']) : null;
-    $contact_notes = isset($data['contact_notes']) ? trim($data['contact_notes']) : null;
-
-    if (empty($contact_name)) {
-        echo json_encode(['success' => false, 'message' => 'Contact name cannot be empty']);
-        exit;
-    }
-
-    // Verify user exists
-    $check_user_sql = "SELECT id FROM users WHERE id = ?";
-    $check_user_stmt = $conn->prepare($check_user_sql);
-    $check_user_stmt->bind_param("i", $user_id);
-    $check_user_stmt->execute();
-    $check_user_result = $check_user_stmt->get_result();
-
-    if ($check_user_result->num_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'User does not exist']);
-        exit;
-    }
-    $check_user_stmt->close();
-
-    // Insert new contact
-    $insert_sql = "INSERT INTO contacts (user_id, contact_name, contact_email, contact_phone, contact_notes) VALUES (?, ?, ?, ?, ?)";
-    $insert_stmt = $conn->prepare($insert_sql);
-    $insert_stmt->bind_param("issss", $user_id, $contact_name, $contact_email, $contact_phone, $contact_notes);
-
-    if ($insert_stmt->execute()) {
-        $contact_id = $conn->insert_id;
-        echo json_encode([
-            'success' => true,
-            'message' => 'Contact added successfully',
-            'contact_id' => $contact_id
-        ]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Failed to add contact: ' . $insert_stmt->error]);
-    }
-
-    $insert_stmt->close();
+if ($contact_email !== null && $contact_email !== '' && !filter_var($contact_email, FILTER_VALIDATE_EMAIL)) {
+    json_fail('Invalid contact email address', 400);
 }
 
+// Verify user exists
+$check_user_stmt = $conn->prepare("SELECT id FROM users WHERE id = ?");
+$check_user_stmt->bind_param("i", $user_id);
+$check_user_stmt->execute();
+$user_exists = $check_user_stmt->get_result()->num_rows > 0;
+$check_user_stmt->close();
+
+if (!$user_exists) {
+    json_fail('User does not exist', 404, 'user_id ' . $user_id);
+}
+
+// Insert new contact
+$insert_sql = "INSERT INTO contacts (user_id, contact_name, contact_email, contact_phone, contact_notes) VALUES (?, ?, ?, ?, ?)";
+$insert_stmt = $conn->prepare($insert_sql);
+$insert_stmt->bind_param("issss", $user_id, $contact_name, $contact_email, $contact_phone, $contact_notes);
+$insert_stmt->execute();
+$contact_id = $conn->insert_id;
+$insert_stmt->close();
+
+json_success([
+    'message' => 'Contact added successfully',
+    'contact_id' => $contact_id
+], 201);
+
 $conn->close();
-?>

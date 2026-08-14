@@ -1,15 +1,13 @@
 <?php
 include 'config.php';
 
-header('Content-Type: application/json');
+require_request_method('GET');
 
-// Check if user_id is provided
-$user_id = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
-
-if ($user_id <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid user ID']);
-    exit;
+if (!isset($_GET['user_id'])) {
+    json_fail('Missing required parameter: user_id', 400);
 }
+
+$user_id = require_positive_int($_GET['user_id'], 'user ID');
 
 // Get contacts for the user
 $sql = "SELECT id, contact_name, contact_email, contact_phone, contact_notes, created_at
@@ -23,14 +21,12 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 $contacts = array();
-if ($result->num_rows > 0) {
-    while($row = $result->fetch_assoc()) {
-        $contacts[] = $row;
-    }
+while ($row = $result->fetch_assoc()) {
+    $contacts[] = $row;
 }
 
-echo json_encode(['success' => true, 'contacts' => $contacts]);
-
 $stmt->close();
+
+json_success(['contacts' => $contacts]);
+
 $conn->close();
-?>
